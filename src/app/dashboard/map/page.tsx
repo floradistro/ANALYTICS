@@ -92,7 +92,8 @@ export default function MapDashboardPage() {
     const { start, end } = getDateRangeForQuery()
 
     try {
-      // Fetch ALL orders (no limit - paginate if needed)
+      // Fetch ALL PAID orders (no limit - paginate if needed)
+      // Filter: payment_status = 'paid' to match Dashboard/Sales pages
       let allOrders: any[] = []
       let page = 0
       const pageSize = 1000
@@ -100,8 +101,10 @@ export default function MapDashboardPage() {
       while (true) {
         let query = supabase
           .from('orders')
-          .select('id, customer_id, shipping_name, shipping_address, shipping_city, shipping_state, total_amount, order_type, pickup_location_id, created_at')
+          .select('id, customer_id, shipping_name, shipping_address, shipping_city, shipping_state, total_amount, order_type, pickup_location_id, status, payment_status, created_at')
           .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')  // Only count paid orders
+          .neq('status', 'cancelled')     // Exclude cancelled
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
         if (!showAllTime) {
@@ -678,7 +681,9 @@ export default function MapDashboardPage() {
         </div>
 
         {/* Stats panel */}
-        <div className="w-64 bg-black/60 backdrop-blur-sm border-l border-zinc-800/50 p-4 space-y-4 z-20 overflow-y-auto">
+        <div className="w-64 bg-black/60 backdrop-blur-sm border-l border-zinc-800/50 z-20 flex flex-col overflow-hidden">
+          {/* Scrollable content area */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           {/* Primary metrics */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-wider mb-3">
@@ -825,9 +830,10 @@ export default function MapDashboardPage() {
               </button>
             </div>
           </div>
+          </div>
 
-          {/* Live Activity Feed */}
-          <div className="pt-3 border-t border-zinc-800/50">
+          {/* Live Activity Feed - Fixed at bottom */}
+          <div className="p-4 border-t border-zinc-800/50 flex-shrink-0">
             <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-wider mb-3">
               <Radio className="w-3 h-3 text-rose-400 animate-pulse" />
               <span>Live Activity</span>

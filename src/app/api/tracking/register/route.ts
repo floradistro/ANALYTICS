@@ -53,9 +53,10 @@ export async function POST(request: NextRequest) {
 
     const client = new EasyPost(apiKey)
     const results = []
+    let apiCallCount = 0
 
-    // Limit to 5 at a time to avoid rate limits
-    const limitedTrackingNumbers = trackingNumbers.slice(0, 5)
+    // Process up to 50 at a time at ~4 req/sec (250ms delay)
+    const limitedTrackingNumbers = trackingNumbers.slice(0, 50)
 
     for (const trackingNumber of limitedTrackingNumbers) {
       const cleanTrackingNumber = trackingNumber.replace(/\s+/g, '')
@@ -88,10 +89,11 @@ export async function POST(request: NextRequest) {
           continue
         }
 
-        // Add delay between API calls to avoid rate limiting
-        if (results.length > 0) {
-          await new Promise(r => setTimeout(r, 1000)) // 1 second delay
+        // Add 250ms delay between EasyPost API calls (~4 req/sec, under 5/sec limit)
+        if (apiCallCount > 0) {
+          await new Promise(r => setTimeout(r, 250))
         }
+        apiCallCount++
 
         // Create tracker with EasyPost
         const tracker = await client.Tracker.create({

@@ -197,14 +197,24 @@ export default function ShipmentsPage() {
   const registerUnregisteredTrackers = useCallback(async () => {
     if (!vendorId || shipments.length === 0) return
 
+    // Get unregistered, valid tracking numbers (normalized)
     const unregisteredNumbers = shipments
-      .filter(s => s.tracking_number && !trackingMap.has(s.tracking_number))
-      .map(s => s.tracking_number!)
+      .filter(s => {
+        if (!s.tracking_number) return false
+        const normalized = s.tracking_number.replace(/\s+/g, '')
+        // Must be valid USPS format and not already registered
+        return isValidUSPSTrackingNumber(s.tracking_number) && !trackingMap.has(normalized)
+      })
+      .map(s => s.tracking_number!.replace(/\s+/g, ''))
 
-    if (unregisteredNumbers.length === 0) return
+    if (unregisteredNumbers.length === 0) {
+      setError('No valid unregistered tracking numbers to process')
+      return
+    }
 
     setIsRefreshing(true)
     setRegisteringNumbers(new Set(unregisteredNumbers))
+    setError(null)
 
     try {
       const response = await fetch('/api/tracking/register', {
@@ -216,20 +226,29 @@ export default function ShipmentsPage() {
         }),
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        const data = await response.json()
         throw new Error(data.error || 'Failed to register trackers')
+      }
+
+      // Show results summary
+      const registered = data.results?.filter((r: any) => r.status === 'registered').length || 0
+      const alreadyRegistered = data.results?.filter((r: any) => r.status === 'already_registered').length || 0
+      const invalid = data.results?.filter((r: any) => r.status === 'invalid').length || 0
+
+      if (registered > 0) {
+        console.log(`Registered ${registered} trackers`)
+      }
+      if (data.rateLimited) {
+        setError(`Rate limited after ${registered} registrations. Try again in a minute.`)
       }
 
       // Refresh tracking data from database
       await fetchTrackingData()
     } catch (error: any) {
       console.error('Failed to register trackers:', error)
-      if (error.message?.includes('rate-limited') || error.message?.includes('rate limit')) {
-        setError('EasyPost API rate limited. Tracking data will update when webhooks arrive.')
-      } else {
-        setError(error.message || 'Failed to register tracking numbers')
-      }
+      setError(error.message || 'Failed to register tracking numbers')
     } finally {
       setIsRefreshing(false)
       setRegisteringNumbers(new Set())
@@ -398,6 +417,23 @@ export default function ShipmentsPage() {
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh
+          </button>
+          <button
+            onClick={() => registerUnregisteredTrackers()}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 border border-blue-500 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+          >
+            {isRefreshing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Tracking...
+              </>
+            ) : (
+              <>
+                <Truck className="w-4 h-4" />
+                Track All
+              </>
+            )}
           </button>
           <button
             onClick={() => setShowSettings(true)}

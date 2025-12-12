@@ -156,6 +156,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to track' }, { status: 500, headers: corsHeaders })
     }
 
+    // Also insert page view record (every page view, not just unique sessions)
+    const { page_title } = body
+    const pagePath = page_url ? new URL(page_url).pathname : '/'
+
+    await supabase
+      .from('page_views')
+      .insert({
+        vendor_id,
+        visitor_id,
+        session_id: sessionId,
+        page_url,
+        page_path: pagePath,
+        page_title: page_title || null,
+        referrer,
+        city: city ? decodeURIComponent(city) : null,
+        region,
+        country,
+        device_type: deviceType,
+        browser,
+        os,
+        channel,
+        utm_source,
+        utm_campaign,
+      })
+
     return NextResponse.json({
       success: true,
       geo: { latitude, longitude, city, region, country },

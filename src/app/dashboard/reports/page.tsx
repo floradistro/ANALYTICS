@@ -57,7 +57,9 @@ interface TaxByLocation {
   state: string
   configuredRate: number
   orders: number
-  subtotal: number
+  grossSubtotal: number
+  discounts: number
+  netSales: number
   taxCollected: number
   effectiveRate: number
 }
@@ -65,22 +67,52 @@ interface TaxByLocation {
 interface TaxByState {
   state: string
   orders: number
-  subtotal: number
+  grossSubtotal: number
+  discounts: number
+  netSales: number
   taxCollected: number
 }
 
 interface TaxByProcessor {
   processor: string
   orders: number
-  subtotal: number
+  grossSubtotal: number
+  discounts: number
+  netSubtotal: number
+  shipping: number
   taxCollected: number
-  effectiveRate: number
+  totalCharged: number
 }
 
 interface DiscountBreakdown {
   type: string
   amount: number
   orders: number
+}
+
+// Normalize state names to standard 2-letter abbreviations
+const normalizeState = (state: string | null | undefined): string => {
+  if (!state || state.trim() === '') return 'Unknown'
+
+  const cleaned = state.trim().toUpperCase()
+
+  // Map full state names to abbreviations
+  const stateMap: Record<string, string> = {
+    'NORTH CAROLINA': 'NC',
+    'SOUTH CAROLINA': 'SC',
+    'TENNESSEE': 'TN',
+    'VIRGINIA': 'VA',
+    'WEST VIRGINIA': 'WV',
+    'GEORGIA': 'GA',
+    'FLORIDA': 'FL',
+    'ALABAMA': 'AL',
+    'CALIFORNIA': 'CA',
+    'NEW YORK': 'NY',
+    'TEXAS': 'TX',
+    // Add more as needed
+  }
+
+  return stateMap[cleaned] || cleaned
 }
 
 // Format payment method names for display
@@ -373,7 +405,7 @@ export default function FinancialReportsPage() {
       while (hasMore) {
         let query = supabase
           .from('orders')
-          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state, payment_method')
+          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state, payment_method, shipping_cost, total_amount, discount_amount, affiliate_discount_amount, metadata')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
@@ -400,14 +432,15 @@ export default function FinancialReportsPage() {
       }
 
       // Aggregate by location (retail stores), by state, and by processor
-      const byLocation = new Map<string, { orders: number; subtotal: number; tax: number; isEcommerce: boolean; state: string }>()
-      const byState = new Map<string, { orders: number; subtotal: number; tax: number }>()
-      const byProcessor = new Map<string, { orders: number; subtotal: number; tax: number }>()
+      const byLocation = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number; isEcommerce: boolean; state: string }>()
+      const byState = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number }>()
+      const byProcessor = new Map<string, { orders: number; grossSubtotal: number; discounts: number; shipping: number; tax: number; total: number }>()
 
       for (const order of allOrders) {
         const isEcommerce = !order.pickup_location_id
         const locInfo = order.pickup_location_id ? locationMap.get(order.pickup_location_id) : null
-        const state = locInfo?.state || order.shipping_state || 'Unknown'
+        const rawState = locInfo?.state || order.shipping_state
+        const state = normalizeState(rawState)
 
         // Determine processor: AuthorizeNet (online) vs Dejavoo (in-store card) vs Cash
         const paymentMethod = order.payment_method || ''
@@ -420,25 +453,37 @@ export default function FinancialReportsPage() {
           processor = 'Dejavoo (In-Store Card)'
         }
 
+        // Calculate total discounts for this order
+        const orderDiscounts =
+          parseFloat(order.discount_amount || 0) +
+          parseFloat(order.affiliate_discount_amount || 0) +
+          parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+          parseFloat(order.metadata?.campaign_discount_amount || 0)
+
         // By processor
-        const procData = byProcessor.get(processor) || { orders: 0, subtotal: 0, tax: 0 }
+        const procData = byProcessor.get(processor) || { orders: 0, grossSubtotal: 0, discounts: 0, shipping: 0, tax: 0, total: 0 }
         procData.orders++
-        procData.subtotal += parseFloat(order.subtotal || 0)
+        procData.grossSubtotal += parseFloat(order.subtotal || 0)
+        procData.discounts += orderDiscounts
+        procData.shipping += parseFloat(order.shipping_cost || 0)
         procData.tax += parseFloat(order.tax_amount || 0)
+        procData.total += parseFloat(order.total_amount || 0)
         byProcessor.set(processor, procData)
 
         // By location - for e-commerce, group by destination state
         const locKey = isEcommerce ? `ecommerce_${state}` : order.pickup_location_id
-        const locData = byLocation.get(locKey) || { orders: 0, subtotal: 0, tax: 0, isEcommerce, state }
+        const locData = byLocation.get(locKey) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0, isEcommerce, state }
         locData.orders++
-        locData.subtotal += parseFloat(order.subtotal || 0)
+        locData.grossSubtotal += parseFloat(order.subtotal || 0)
+        locData.discounts += orderDiscounts
         locData.tax += parseFloat(order.tax_amount || 0)
         byLocation.set(locKey, locData)
 
         // By state (for state-level filing summary)
-        const stateData = byState.get(state) || { orders: 0, subtotal: 0, tax: 0 }
+        const stateData = byState.get(state) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0 }
         stateData.orders++
-        stateData.subtotal += parseFloat(order.subtotal || 0)
+        stateData.grossSubtotal += parseFloat(order.subtotal || 0)
+        stateData.discounts += orderDiscounts
         stateData.tax += parseFloat(order.tax_amount || 0)
         byState.set(state, stateData)
       }
@@ -448,6 +493,7 @@ export default function FinancialReportsPage() {
         .map(([locId, data]) => {
           const locInfo = locationMap.get(locId)
           const isEcommerce = data.isEcommerce
+          const netSales = data.grossSubtotal - data.discounts
           return {
             locationId: locId,
             locationName: isEcommerce
@@ -456,9 +502,11 @@ export default function FinancialReportsPage() {
             state: data.state,
             configuredRate: locInfo?.configuredRate || 0,
             orders: data.orders,
-            subtotal: data.subtotal,
+            grossSubtotal: data.grossSubtotal,
+            discounts: data.discounts,
+            netSales,
             taxCollected: data.tax,
-            effectiveRate: data.subtotal > 0 ? (data.tax / data.subtotal) * 100 : 0,
+            effectiveRate: netSales > 0 ? (data.tax / netSales) * 100 : 0,
           }
         })
         // Sort: retail stores first (by tax), then e-commerce (by tax)
@@ -473,7 +521,9 @@ export default function FinancialReportsPage() {
         .map(([state, data]) => ({
           state,
           orders: data.orders,
-          subtotal: data.subtotal,
+          grossSubtotal: data.grossSubtotal,
+          discounts: data.discounts,
+          netSales: data.grossSubtotal - data.discounts,
           taxCollected: data.tax,
         }))
         .sort((a, b) => b.taxCollected - a.taxCollected)
@@ -482,11 +532,14 @@ export default function FinancialReportsPage() {
         .map(([processor, data]) => ({
           processor,
           orders: data.orders,
-          subtotal: data.subtotal,
+          grossSubtotal: data.grossSubtotal,
+          discounts: data.discounts,
+          netSubtotal: data.grossSubtotal - data.discounts,
+          shipping: data.shipping,
           taxCollected: data.tax,
-          effectiveRate: data.subtotal > 0 ? (data.tax / data.subtotal) * 100 : 0,
+          totalCharged: data.total,
         }))
-        .sort((a, b) => b.taxCollected - a.taxCollected)
+        .sort((a, b) => b.totalCharged - a.totalCharged)
 
       setTaxByLocation(taxByLocationData)
       setTaxByState(taxByStateData)
@@ -904,37 +957,54 @@ export default function FinancialReportsPage() {
             <table className="w-full">
               <thead className="border-b border-zinc-900">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Processor</th>
-                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
-                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Subtotal</th>
-                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax Collected</th>
-                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Effective Rate</th>
+                  <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Processor</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Gross</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Discounts</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Net Sales</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Shipping</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax</th>
+                  <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Total Charged</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {taxByProcessor.map((proc) => (
                   <tr key={proc.processor} className="hover:bg-zinc-900/50 transition-colors">
-                    <td className="px-6 py-3 text-sm font-light text-white">{proc.processor}</td>
-                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{proc.orders.toLocaleString()}</td>
-                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.subtotal)}</td>
-                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(proc.taxCollected)}</td>
-                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{proc.effectiveRate.toFixed(2)}%</td>
+                    <td className="px-4 py-3 text-sm font-light text-white">{proc.processor}</td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{proc.orders.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.grossSubtotal)}</td>
+                    <td className="px-4 py-3 text-sm text-orange-400 text-right font-light">-{formatCurrency(proc.discounts)}</td>
+                    <td className="px-4 py-3 text-sm text-zinc-300 text-right font-light">{formatCurrency(proc.netSubtotal)}</td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.shipping)}</td>
+                    <td className="px-4 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(proc.taxCollected)}</td>
+                    <td className="px-4 py-3 text-sm text-white text-right font-light">{formatCurrency(proc.totalCharged)}</td>
                   </tr>
                 ))}
               </tbody>
               <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
                 <tr>
-                  <td className="px-6 py-3 text-sm font-light text-white">Total</td>
-                  <td className="px-6 py-3 text-sm text-white text-right font-light">
+                  <td className="px-4 py-3 text-sm font-light text-white">Total</td>
+                  <td className="px-4 py-3 text-sm text-white text-right font-light">
                     {taxByProcessor.reduce((sum, p) => sum + p.orders, 0).toLocaleString()}
                   </td>
-                  <td className="px-6 py-3 text-sm text-white text-right font-light">
-                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.subtotal, 0))}
+                  <td className="px-4 py-3 text-sm text-white text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.grossSubtotal, 0))}
                   </td>
-                  <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                  <td className="px-4 py-3 text-sm text-orange-400 text-right font-light">
+                    -{formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.discounts, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-white text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.netSubtotal, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-white text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.shipping, 0))}
+                  </td>
+                  <td className="px-4 py-3 text-sm text-emerald-400 text-right font-light">
                     {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.taxCollected, 0))}
                   </td>
-                  <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">-</td>
+                  <td className="px-4 py-3 text-sm text-white text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.totalCharged, 0))}
+                  </td>
                 </tr>
               </tfoot>
             </table>

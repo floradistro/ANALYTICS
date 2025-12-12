@@ -12,12 +12,14 @@ import {
   LogOut,
   Map,
   Truck,
+  Activity,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/sales', label: 'Sales Analytics', icon: TrendingUp },
+  { href: '/dashboard/traffic', label: 'Web Analytics', icon: Activity },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/dashboard/shipments', label: 'Shipments', icon: Truck },
   { href: '/dashboard/customers', label: 'Customers', icon: Users },
