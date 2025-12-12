@@ -70,6 +70,18 @@ export default function MapDashboardPage() {
   const [shippingCount, setShippingCount] = useState(0)
   const [trafficCount, setTrafficCount] = useState(0)
 
+  // Live activity feed
+  interface ActivityItem {
+    id: string
+    type: 'visitor' | 'event' | 'purchase'
+    city?: string
+    region?: string
+    eventName?: string
+    revenue?: number
+    timestamp: string
+  }
+  const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([])
+
   // Fetch data
   const fetchData = useCallback(async () => {
     if (!vendorId) return
@@ -523,6 +535,54 @@ export default function MapDashboardPage() {
               traffic: [...newPoints, ...prev.traffic],
             }))
             setTrafficCount((prev) => prev + newPoints.length)
+
+            // Add to activity feed
+            const newActivities: ActivityItem[] = visitors!.map(v => ({
+              id: `v-${v.created_at}-${Math.random()}`,
+              type: 'visitor' as const,
+              city: v.city || undefined,
+              region: v.region || undefined,
+              timestamp: v.created_at,
+            }))
+            setActivityFeed((prev) => [...newActivities, ...prev].slice(0, 20))
+          }
+        }
+
+        // Also poll for events
+        const { data: events } = await supabase
+          .from('analytics_events')
+          .select('id, event_name, city, region, revenue, created_at')
+          .eq('vendor_id', vendorId)
+          .order('created_at', { ascending: false })
+          .limit(5)
+
+        if (events && events.length > 0) {
+          const newEventActivities: ActivityItem[] = events
+            .filter(e => !activityFeed.some(a => a.id === `e-${e.id}`))
+            .map(e => ({
+              id: `e-${e.id}`,
+              type: e.event_name === 'purchase' ? 'purchase' as const : 'event' as const,
+              eventName: e.event_name,
+              city: e.city || undefined,
+              region: e.region || undefined,
+              revenue: e.revenue || undefined,
+              timestamp: e.created_at,
+            }))
+
+          if (newEventActivities.length > 0) {
+            setActivityFeed((prev) => {
+              const combined = [...newEventActivities, ...prev]
+              // Sort by timestamp and dedupe
+              const seen = new Set<string>()
+              return combined
+                .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                .filter(item => {
+                  if (seen.has(item.id)) return false
+                  seen.add(item.id)
+                  return true
+                })
+                .slice(0, 20)
+            })
           }
         }
       } catch (err) {
@@ -537,9 +597,11 @@ export default function MapDashboardPage() {
 
     // Poll every 5 seconds
     const interval = setInterval(pollForNewVisitors, 5000)
+    // Initial poll
+    pollForNewVisitors()
 
     return () => clearInterval(interval)
-  }, [vendorId, layers.traffic.length])
+  }, [vendorId, layers.traffic.length, activityFeed])
 
   const formatCurrency = (n: number) => '$' + Math.round(n).toLocaleString()
 
@@ -763,8 +825,71 @@ export default function MapDashboardPage() {
               </button>
             </div>
           </div>
+
+          {/* Live Activity Feed */}
+          <div className="pt-3 border-t border-zinc-800/50">
+            <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-wider mb-3">
+              <Radio className="w-3 h-3 text-rose-400 animate-pulse" />
+              <span>Live Activity</span>
+            </div>
+            <div className="space-y-1.5 max-h-[180px] overflow-y-auto">
+              {activityFeed.length === 0 ? (
+                <div className="text-[10px] font-mono text-zinc-600 text-center py-4">
+                  Waiting for activity...
+                </div>
+              ) : (
+                activityFeed.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`py-1.5 px-2 border transition-all ${
+                      item.type === 'purchase'
+                        ? 'bg-green-500/10 border-green-500/30'
+                        : item.type === 'event'
+                        ? 'bg-amber-500/10 border-amber-500/30'
+                        : 'bg-rose-500/10 border-rose-500/30'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          item.type === 'purchase' ? 'bg-green-400' :
+                          item.type === 'event' ? 'bg-amber-400' : 'bg-rose-400'
+                        }`} />
+                        <span className={`text-[10px] font-mono ${
+                          item.type === 'purchase' ? 'text-green-400' :
+                          item.type === 'event' ? 'text-amber-400' : 'text-rose-400'
+                        }`}>
+                          {item.type === 'visitor' ? 'Visit' :
+                           item.eventName === 'add_to_cart' ? 'Cart+' :
+                           item.eventName === 'purchase' ? 'Sale!' :
+                           item.eventName || 'Event'}
+                        </span>
+                      </div>
+                      {item.revenue && (
+                        <span className="text-[10px] font-mono text-green-400">
+                          +${item.revenue.toFixed(0)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[9px] font-mono text-zinc-500 mt-0.5">
+                      {item.city && item.region ? `${item.city}, ${item.region}` : item.region || 'Unknown'} •{' '}
+                      {formatTimeAgo(item.timestamp)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   )
+}
+
+function formatTimeAgo(timestamp: string): string {
+  const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000)
+  if (seconds < 60) return 'just now'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+  return `${Math.floor(seconds / 86400)}d ago`
 }

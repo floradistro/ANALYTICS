@@ -240,17 +240,17 @@ export default function ShipmentsPage() {
   const registerSingleTracker = useCallback(async (trackingNumber: string) => {
     if (!vendorId) return
 
-    setRegisteringNumbers(prev => new Set(prev).add(trackingNumber))
+    // Normalize tracking number by removing spaces
+    const normalizedNum = trackingNumber.replace(/\s+/g, '')
+    setRegisteringNumbers(prev => new Set(prev).add(normalizedNum))
     setError(null)
 
     try {
-      console.log('Registering tracker:', trackingNumber, 'for vendor:', vendorId)
-
       const response = await fetch('/api/tracking/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          trackingNumbers: [trackingNumber],
+          trackingNumbers: [normalizedNum],
           vendorId,
         }),
       })
@@ -272,7 +272,7 @@ export default function ShipmentsPage() {
     } finally {
       setRegisteringNumbers(prev => {
         const next = new Set(prev)
-        next.delete(trackingNumber)
+        next.delete(normalizedNum)
         return next
       })
     }
@@ -315,14 +315,10 @@ export default function ShipmentsPage() {
   }
 
   // Combine shipments with tracking data
+  // Normalize tracking numbers by removing all spaces for matching
   const shipmentsWithTracking = shipments.map(s => {
-    const trackingNum = s.tracking_number?.trim()
+    const trackingNum = s.tracking_number?.replace(/\s+/g, '')
     const trackingData = trackingNum ? trackingMap.get(trackingNum) : undefined
-
-    // Debug: log first shipment with tracking number
-    if (s.tracking_number && !trackingData && trackingMap.size > 0) {
-      console.log('No match for:', JSON.stringify(s.tracking_number), 'Map keys:', Array.from(trackingMap.keys()).slice(0, 3))
-    }
 
     return {
       ...s,

@@ -69,6 +69,14 @@ interface TaxByState {
   taxCollected: number
 }
 
+interface TaxByProcessor {
+  processor: string
+  orders: number
+  subtotal: number
+  taxCollected: number
+  effectiveRate: number
+}
+
 interface DiscountBreakdown {
   type: string
   amount: number
@@ -110,6 +118,7 @@ export default function FinancialReportsPage() {
   })
   const [taxByLocation, setTaxByLocation] = useState<TaxByLocation[]>([])
   const [taxByState, setTaxByState] = useState<TaxByState[]>([])
+  const [taxByProcessor, setTaxByProcessor] = useState<TaxByProcessor[]>([])
   const [discountBreakdown, setDiscountBreakdown] = useState<DiscountBreakdown[]>([])
   const [taxReportMonth, setTaxReportMonth] = useState<string>('all') // 'all' or 'YYYY-MM'
 
@@ -364,7 +373,7 @@ export default function FinancialReportsPage() {
       while (hasMore) {
         let query = supabase
           .from('orders')
-          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state')
+          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state, payment_method')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
@@ -390,14 +399,33 @@ export default function FinancialReportsPage() {
         page++
       }
 
-      // Aggregate by location (retail stores) and by state (for e-commerce)
+      // Aggregate by location (retail stores), by state, and by processor
       const byLocation = new Map<string, { orders: number; subtotal: number; tax: number; isEcommerce: boolean; state: string }>()
       const byState = new Map<string, { orders: number; subtotal: number; tax: number }>()
+      const byProcessor = new Map<string, { orders: number; subtotal: number; tax: number }>()
 
       for (const order of allOrders) {
         const isEcommerce = !order.pickup_location_id
         const locInfo = order.pickup_location_id ? locationMap.get(order.pickup_location_id) : null
         const state = locInfo?.state || order.shipping_state || 'Unknown'
+
+        // Determine processor: AuthorizeNet (online) vs Dejavoo (in-store card) vs Cash
+        const paymentMethod = order.payment_method || ''
+        let processor: string
+        if (paymentMethod === 'authorizenet') {
+          processor = 'AuthorizeNet (Online)'
+        } else if (paymentMethod === 'cash') {
+          processor = 'Cash (In-Store)'
+        } else {
+          processor = 'Dejavoo (In-Store Card)'
+        }
+
+        // By processor
+        const procData = byProcessor.get(processor) || { orders: 0, subtotal: 0, tax: 0 }
+        procData.orders++
+        procData.subtotal += parseFloat(order.subtotal || 0)
+        procData.tax += parseFloat(order.tax_amount || 0)
+        byProcessor.set(processor, procData)
 
         // By location - for e-commerce, group by destination state
         const locKey = isEcommerce ? `ecommerce_${state}` : order.pickup_location_id
@@ -450,8 +478,19 @@ export default function FinancialReportsPage() {
         }))
         .sort((a, b) => b.taxCollected - a.taxCollected)
 
+      const taxByProcessorData: TaxByProcessor[] = Array.from(byProcessor.entries())
+        .map(([processor, data]) => ({
+          processor,
+          orders: data.orders,
+          subtotal: data.subtotal,
+          taxCollected: data.tax,
+          effectiveRate: data.subtotal > 0 ? (data.tax / data.subtotal) * 100 : 0,
+        }))
+        .sort((a, b) => b.taxCollected - a.taxCollected)
+
       setTaxByLocation(taxByLocationData)
       setTaxByState(taxByStateData)
+      setTaxByProcessor(taxByProcessorData)
     } catch (error) {
       console.error('Failed to fetch tax by location:', error)
     }
@@ -851,6 +890,57 @@ export default function FinancialReportsPage() {
           </select>
         </div>
       </div>
+
+      {/* Tax by Processor - for reconciling with payment systems */}
+      {taxByProcessor.length > 0 && (
+        <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
+          <div className="px-6 py-4 border-b border-zinc-900">
+            <h3 className="text-sm font-light text-white tracking-wide">Tax by Payment Processor</h3>
+            <p className="text-xs text-zinc-500 mt-1">
+              Reconcile with your payment systems ({taxReportMonth === 'all' ? 'all time' : availableMonths.find(m => m.value === taxReportMonth)?.label})
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="border-b border-zinc-900">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Processor</th>
+                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Subtotal</th>
+                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax Collected</th>
+                  <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Effective Rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {taxByProcessor.map((proc) => (
+                  <tr key={proc.processor} className="hover:bg-zinc-900/50 transition-colors">
+                    <td className="px-6 py-3 text-sm font-light text-white">{proc.processor}</td>
+                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{proc.orders.toLocaleString()}</td>
+                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.subtotal)}</td>
+                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(proc.taxCollected)}</td>
+                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{proc.effectiveRate.toFixed(2)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
+                <tr>
+                  <td className="px-6 py-3 text-sm font-light text-white">Total</td>
+                  <td className="px-6 py-3 text-sm text-white text-right font-light">
+                    {taxByProcessor.reduce((sum, p) => sum + p.orders, 0).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-3 text-sm text-white text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.subtotal, 0))}
+                  </td>
+                  <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                    {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.taxCollected, 0))}
+                  </td>
+                  <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">-</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tax by Location */}
