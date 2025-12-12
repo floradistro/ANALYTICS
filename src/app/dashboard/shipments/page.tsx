@@ -244,6 +244,8 @@ export default function ShipmentsPage() {
     setError(null)
 
     try {
+      console.log('Registering tracker:', trackingNumber, 'for vendor:', vendorId)
+
       const response = await fetch('/api/tracking/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -253,8 +255,10 @@ export default function ShipmentsPage() {
         }),
       })
 
+      const data = await response.json()
+      console.log('Register response:', data)
+
       if (!response.ok) {
-        const data = await response.json()
         throw new Error(data.error || 'Failed to register tracker')
       }
 
@@ -311,11 +315,21 @@ export default function ShipmentsPage() {
   }
 
   // Combine shipments with tracking data
-  const shipmentsWithTracking = shipments.map(s => ({
-    ...s,
-    trackingData: s.tracking_number ? trackingMap.get(s.tracking_number) : undefined,
-    isRegistering: s.tracking_number ? registeringNumbers.has(s.tracking_number) : false,
-  }))
+  const shipmentsWithTracking = shipments.map(s => {
+    const trackingNum = s.tracking_number?.trim()
+    const trackingData = trackingNum ? trackingMap.get(trackingNum) : undefined
+
+    // Debug: log first shipment with tracking number
+    if (s.tracking_number && !trackingData && trackingMap.size > 0) {
+      console.log('No match for:', JSON.stringify(s.tracking_number), 'Map keys:', Array.from(trackingMap.keys()).slice(0, 3))
+    }
+
+    return {
+      ...s,
+      trackingData,
+      isRegistering: trackingNum ? registeringNumbers.has(trackingNum) : false,
+    }
+  })
 
   const filteredShipments = shipmentsWithTracking.filter((s) => {
     // Search filter

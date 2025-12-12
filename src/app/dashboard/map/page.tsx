@@ -474,58 +474,72 @@ export default function MapDashboardPage() {
     fetchData()
   }, [fetchData])
 
-  // Real-time subscription for live traffic updates
+  // Track last seen visitor timestamp for polling
+  const lastVisitorTime = useRef<string | null>(null)
+
+  // Real-time polling for live traffic updates (every 5 seconds)
   useEffect(() => {
     if (!vendorId) return
 
-    const channel = supabase
-      .channel('live-visitors')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'website_visitors',
-          filter: `vendor_id=eq.${vendorId}`,
-        },
-        (payload) => {
-          const visitor = payload.new as {
-            latitude: number | null
-            longitude: number | null
-            city: string | null
-            region: string | null
-            device_type: string | null
-            created_at: string
-          }
+    const pollForNewVisitors = async () => {
+      try {
+        const query = supabase
+          .from('website_visitors')
+          .select('latitude, longitude, city, region, device_type, created_at')
+          .eq('vendor_id', vendorId)
+          .not('latitude', 'is', null)
+          .order('created_at', { ascending: false })
+          .limit(10)
 
-          // Only add if we have coordinates
-          if (visitor.latitude && visitor.longitude) {
-            const newPoint: GeoPoint = {
-              lat: visitor.latitude,
-              lng: visitor.longitude,
-              type: 'traffic',
+        // Only get visitors newer than last seen
+        if (lastVisitorTime.current) {
+          query.gt('created_at', lastVisitorTime.current)
+        }
+
+        const { data: visitors } = await query
+
+        if (visitors && visitors.length > 0) {
+          // Update last seen time
+          lastVisitorTime.current = visitors[0].created_at
+
+          // Add new points to map
+          const newPoints: GeoPoint[] = visitors
+            .filter(v => v.latitude && v.longitude)
+            .map(visitor => ({
+              lat: visitor.latitude!,
+              lng: visitor.longitude!,
+              type: 'traffic' as const,
               revenue: 0,
               orders: 0,
               city: visitor.city || undefined,
               state: visitor.region || undefined,
               device: visitor.device_type || undefined,
               timestamp: visitor.created_at,
-            }
+            }))
 
+          if (newPoints.length > 0) {
             setLayers((prev) => ({
               ...prev,
-              traffic: [newPoint, ...prev.traffic],
+              traffic: [...newPoints, ...prev.traffic],
             }))
-            setTrafficCount((prev) => prev + 1)
+            setTrafficCount((prev) => prev + newPoints.length)
           }
         }
-      )
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
+      } catch (err) {
+        console.error('Polling error:', err)
+      }
     }
-  }, [vendorId])
+
+    // Set initial last visitor time from current data
+    if (layers.traffic.length > 0 && layers.traffic[0].timestamp) {
+      lastVisitorTime.current = layers.traffic[0].timestamp
+    }
+
+    // Poll every 5 seconds
+    const interval = setInterval(pollForNewVisitors, 5000)
+
+    return () => clearInterval(interval)
+  }, [vendorId, layers.traffic.length])
 
   const formatCurrency = (n: number) => '$' + Math.round(n).toLocaleString()
 
