@@ -51,6 +51,30 @@ interface PaymentStats {
   successRate: number
 }
 
+interface TaxByLocation {
+  locationId: string
+  locationName: string
+  state: string
+  configuredRate: number
+  orders: number
+  subtotal: number
+  taxCollected: number
+  effectiveRate: number
+}
+
+interface TaxByState {
+  state: string
+  orders: number
+  subtotal: number
+  taxCollected: number
+}
+
+interface DiscountBreakdown {
+  type: string
+  amount: number
+  orders: number
+}
+
 // Format payment method names for display
 const formatPaymentMethod = (method: string): string => {
   const methodMap: Record<string, string> = {
@@ -84,6 +108,9 @@ export default function FinancialReportsPage() {
     totalOrders: 0,
     avgOrderValue: 0,
   })
+  const [taxByLocation, setTaxByLocation] = useState<TaxByLocation[]>([])
+  const [taxByState, setTaxByState] = useState<TaxByState[]>([])
+  const [discountBreakdown, setDiscountBreakdown] = useState<DiscountBreakdown[]>([])
 
   const fetchMonthlyReports = useCallback(async () => {
     if (!vendorId) return
@@ -287,13 +314,178 @@ export default function FinancialReportsPage() {
     }
   }, [vendorId, dateRange, filters])
 
+  const fetchTaxByLocation = useCallback(async () => {
+    if (!vendorId) return
+
+    try {
+      // Fetch locations
+      const { data: locations } = await supabase
+        .from('locations')
+        .select('id, name, state, settings')
+        .eq('vendor_id', vendorId)
+        .eq('is_active', true)
+
+      const locationMap = new Map<string, { name: string; state: string; configuredRate: number }>()
+      for (const loc of locations || []) {
+        const taxConfig = loc.settings?.tax_config
+        const configuredRate = taxConfig?.sales_tax_rate || taxConfig?.default_rate / 100 || 0
+        locationMap.set(loc.id, {
+          name: loc.name,
+          state: loc.state,
+          configuredRate: configuredRate * 100,
+        })
+      }
+
+      // Fetch all paid orders with location and tax info
+      const pageSize = 1000
+      let allOrders: any[] = []
+      let page = 0
+      let hasMore = true
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state')
+          .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')
+          .neq('status', 'cancelled')
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (error) throw error
+        if (data && data.length > 0) {
+          allOrders = [...allOrders, ...data]
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
+        }
+        page++
+      }
+
+      // Aggregate by location
+      const byLocation = new Map<string, { orders: number; subtotal: number; tax: number }>()
+      const byState = new Map<string, { orders: number; subtotal: number; tax: number }>()
+
+      for (const order of allOrders) {
+        const locId = order.pickup_location_id || 'ecommerce'
+        const locInfo = locationMap.get(locId)
+        const state = locInfo?.state || order.shipping_state || 'Unknown'
+
+        // By location
+        const locData = byLocation.get(locId) || { orders: 0, subtotal: 0, tax: 0 }
+        locData.orders++
+        locData.subtotal += parseFloat(order.subtotal || 0)
+        locData.tax += parseFloat(order.tax_amount || 0)
+        byLocation.set(locId, locData)
+
+        // By state
+        const stateData = byState.get(state) || { orders: 0, subtotal: 0, tax: 0 }
+        stateData.orders++
+        stateData.subtotal += parseFloat(order.subtotal || 0)
+        stateData.tax += parseFloat(order.tax_amount || 0)
+        byState.set(state, stateData)
+      }
+
+      // Convert to arrays
+      const taxByLocationData: TaxByLocation[] = Array.from(byLocation.entries())
+        .map(([locId, data]) => {
+          const locInfo = locationMap.get(locId)
+          return {
+            locationId: locId,
+            locationName: locInfo?.name || (locId === 'ecommerce' ? 'E-Commerce (Shipping)' : 'Unknown'),
+            state: locInfo?.state || 'Various',
+            configuredRate: locInfo?.configuredRate || 0,
+            orders: data.orders,
+            subtotal: data.subtotal,
+            taxCollected: data.tax,
+            effectiveRate: data.subtotal > 0 ? (data.tax / data.subtotal) * 100 : 0,
+          }
+        })
+        .sort((a, b) => b.taxCollected - a.taxCollected)
+
+      const taxByStateData: TaxByState[] = Array.from(byState.entries())
+        .map(([state, data]) => ({
+          state,
+          orders: data.orders,
+          subtotal: data.subtotal,
+          taxCollected: data.tax,
+        }))
+        .sort((a, b) => b.taxCollected - a.taxCollected)
+
+      setTaxByLocation(taxByLocationData)
+      setTaxByState(taxByStateData)
+    } catch (error) {
+      console.error('Failed to fetch tax by location:', error)
+    }
+  }, [vendorId])
+
+  const fetchDiscountBreakdown = useCallback(async () => {
+    if (!vendorId) return
+
+    try {
+      const pageSize = 1000
+      let allOrders: any[] = []
+      let page = 0
+      let hasMore = true
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from('orders')
+          .select('discount_amount, metadata, affiliate_discount_amount')
+          .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')
+          .neq('status', 'cancelled')
+          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        if (error) throw error
+        if (data && data.length > 0) {
+          allOrders = [...allOrders, ...data]
+          hasMore = data.length === pageSize
+        } else {
+          hasMore = false
+        }
+        page++
+      }
+
+      // Aggregate discounts by type
+      let fieldDiscount = 0, fieldCount = 0
+      let campaignDiscount = 0, campaignCount = 0
+      let loyaltyDiscount = 0, loyaltyCount = 0
+      let affiliateDiscount = 0, affiliateCount = 0
+
+      for (const order of allOrders) {
+        const fd = parseFloat(order.discount_amount || 0)
+        const cd = parseFloat(order.metadata?.campaign_discount_amount || 0)
+        const ld = parseFloat(order.metadata?.loyalty_discount_amount || 0)
+        const ad = parseFloat(order.affiliate_discount_amount || 0)
+
+        if (fd > 0) { fieldDiscount += fd; fieldCount++ }
+        if (cd > 0) { campaignDiscount += cd; campaignCount++ }
+        if (ld > 0) { loyaltyDiscount += ld; loyaltyCount++ }
+        if (ad > 0) { affiliateDiscount += ad; affiliateCount++ }
+      }
+
+      const breakdown: DiscountBreakdown[] = [
+        { type: 'Campaign/Promo', amount: campaignDiscount, orders: campaignCount },
+        { type: 'Loyalty Points', amount: loyaltyDiscount, orders: loyaltyCount },
+        { type: 'Affiliate Codes', amount: affiliateDiscount, orders: affiliateCount },
+        { type: 'Manual/Other', amount: fieldDiscount, orders: fieldCount },
+      ].filter(d => d.amount > 0)
+
+      setDiscountBreakdown(breakdown)
+    } catch (error) {
+      console.error('Failed to fetch discount breakdown:', error)
+    }
+  }, [vendorId])
+
   useEffect(() => {
     if (vendorId) {
       fetchMonthlyReports()
       fetchPaymentBreakdown()
       fetchPaymentStats()
+      fetchTaxByLocation()
+      fetchDiscountBreakdown()
     }
-  }, [vendorId, reportPeriod, dateRange, filters, fetchMonthlyReports, fetchPaymentBreakdown, fetchPaymentStats])
+  }, [vendorId, reportPeriod, dateRange, filters, fetchMonthlyReports, fetchPaymentBreakdown, fetchPaymentStats, fetchTaxByLocation, fetchDiscountBreakdown])
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', {
@@ -580,6 +772,147 @@ export default function FinancialReportsPage() {
           </table>
         </div>
       </div>
+
+      {/* Tax Reports Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Tax by Location */}
+        <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
+          <div className="px-6 py-4 border-b border-zinc-900">
+            <h3 className="text-sm font-light text-white tracking-wide">Tax by Location</h3>
+            <p className="text-xs text-zinc-500 mt-1">Tax collected at each retail location (all time)</p>
+          </div>
+          <div className="overflow-x-auto">
+            {taxByLocation.length === 0 ? (
+              <div className="px-6 py-8 text-center text-zinc-500 text-sm">No tax data available</div>
+            ) : (
+              <table className="w-full">
+                <thead className="border-b border-zinc-900">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Location</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Subtotal</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Rate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {taxByLocation.map((loc) => (
+                    <tr key={loc.locationId} className="hover:bg-zinc-900/50 transition-colors">
+                      <td className="px-6 py-3 text-sm font-light text-white">
+                        {loc.locationName}
+                        <span className="text-zinc-500 ml-2">({loc.state})</span>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{loc.orders.toLocaleString()}</td>
+                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(loc.subtotal)}</td>
+                      <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(loc.taxCollected)}</td>
+                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{loc.effectiveRate.toFixed(2)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
+                  <tr>
+                    <td className="px-6 py-3 text-sm font-light text-white">Total</td>
+                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                      {taxByLocation.reduce((sum, l) => sum + l.orders, 0).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                      {formatCurrency(taxByLocation.reduce((sum, l) => sum + l.subtotal, 0))}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                      {formatCurrency(taxByLocation.reduce((sum, l) => sum + l.taxCollected, 0))}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">-</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* Tax by State */}
+        <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
+          <div className="px-6 py-4 border-b border-zinc-900">
+            <h3 className="text-sm font-light text-white tracking-wide">Tax by State</h3>
+            <p className="text-xs text-zinc-500 mt-1">Summary for state tax filings (all time)</p>
+          </div>
+          <div className="overflow-x-auto">
+            {taxByState.length === 0 ? (
+              <div className="px-6 py-8 text-center text-zinc-500 text-sm">No tax data available</div>
+            ) : (
+              <table className="w-full">
+                <thead className="border-b border-zinc-900">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">State</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Taxable Sales</th>
+                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax Collected</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-900">
+                  {taxByState.map((state) => (
+                    <tr key={state.state} className="hover:bg-zinc-900/50 transition-colors">
+                      <td className="px-6 py-3 text-sm font-light text-white">{state.state}</td>
+                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{state.orders.toLocaleString()}</td>
+                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(state.subtotal)}</td>
+                      <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(state.taxCollected)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
+                  <tr>
+                    <td className="px-6 py-3 text-sm font-light text-white">Total</td>
+                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                      {taxByState.reduce((sum, s) => sum + s.orders, 0).toLocaleString()}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                      {formatCurrency(taxByState.reduce((sum, s) => sum + s.subtotal, 0))}
+                    </td>
+                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                      {formatCurrency(taxByState.reduce((sum, s) => sum + s.taxCollected, 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Discount Breakdown */}
+      {discountBreakdown.length > 0 && (
+        <div className="bg-zinc-950 border border-zinc-900 p-6">
+          <h3 className="text-sm font-light text-white mb-6 tracking-wide">Discount Breakdown</h3>
+          <p className="text-xs text-zinc-500 mb-4">Discounts by source (all time)</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            {discountBreakdown.map((discount) => {
+              const totalDiscounts = discountBreakdown.reduce((sum, d) => sum + d.amount, 0)
+              const percentage = totalDiscounts > 0 ? (discount.amount / totalDiscounts) * 100 : 0
+              return (
+                <div key={discount.type} className="bg-zinc-900/50 border border-zinc-800 p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-light text-white">{discount.type}</span>
+                    <span className="text-xs text-zinc-500">{percentage.toFixed(1)}%</span>
+                  </div>
+                  <div className="text-xl font-light text-orange-400">{formatCurrency(discount.amount)}</div>
+                  <div className="text-xs text-zinc-500 mt-1">{discount.orders.toLocaleString()} orders</div>
+                  <div className="h-1 bg-zinc-800 mt-3 overflow-hidden">
+                    <div
+                      className="h-full bg-orange-500"
+                      style={{ width: `${percentage}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-4 pt-4 border-t border-zinc-800 flex justify-between items-center">
+            <span className="text-sm font-light text-white">Total Discounts</span>
+            <span className="text-xl font-light text-orange-400">
+              {formatCurrency(discountBreakdown.reduce((sum, d) => sum + d.amount, 0))}
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

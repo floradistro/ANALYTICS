@@ -31,6 +31,14 @@ function setCachedResult(trackingNumber: string, data: TrackingResult): void {
   }
 }
 
+// Validate USPS tracking number format
+function isValidUSPSTrackingNumber(trackingNumber: string): boolean {
+  const clean = trackingNumber.replace(/\s+/g, '')
+  // Must be 20-22 digits and contain only numbers
+  if (!/^\d{20,22}$/.test(clean)) return false
+  return true
+}
+
 interface TrackingResult {
   trackingNumber: string
   status: string
@@ -90,6 +98,23 @@ async function getTrackingWithEasyPost(trackingNumbers: string[]): Promise<Track
   // Process tracking numbers
   for (const trackingNumber of trackingNumbers) {
     const cleanTrackingNumber = trackingNumber.replace(/\s+/g, '')
+
+    // Skip invalid tracking numbers
+    if (!isValidUSPSTrackingNumber(cleanTrackingNumber)) {
+      results.push({
+        trackingNumber: cleanTrackingNumber,
+        status: 'unknown',
+        statusCategory: '',
+        statusDescription: 'Invalid tracking number format',
+        estimatedDelivery: null,
+        lastUpdate: '',
+        lastLocation: '',
+        carrier: '',
+        events: [],
+        error: 'Invalid USPS tracking number - must be 20-22 digits',
+      })
+      continue
+    }
 
     // Check cache first
     const cachedResult = getCachedResult(cleanTrackingNumber)

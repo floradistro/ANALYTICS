@@ -4,11 +4,23 @@ import { createClient } from '@supabase/supabase-js'
 // Use Edge runtime to access Vercel's geolocation headers
 export const runtime = 'edge'
 
+// CORS headers for cross-origin requests
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+}
+
 // Create Supabase client with service role for inserts
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 )
+
+// Handle CORS preflight
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204, headers: corsHeaders })
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +28,7 @@ export async function POST(request: NextRequest) {
     const { vendor_id, page_url, referrer, visitor_id } = body
 
     if (!vendor_id) {
-      return NextResponse.json({ error: 'vendor_id required' }, { status: 400 })
+      return NextResponse.json({ error: 'vendor_id required' }, { status: 400, headers: corsHeaders })
     }
 
     // Get geolocation from Vercel headers (automatically provided)
@@ -55,16 +67,16 @@ export async function POST(request: NextRequest) {
 
     if (error) {
       console.error('Visitor tracking error:', error)
-      return NextResponse.json({ error: 'Failed to track' }, { status: 500 })
+      return NextResponse.json({ error: 'Failed to track' }, { status: 500, headers: corsHeaders })
     }
 
     return NextResponse.json({
       success: true,
       geo: { latitude, longitude, city, region, country }
-    })
+    }, { headers: corsHeaders })
   } catch (err) {
     console.error('Track API error:', err)
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
+    return NextResponse.json({ error: 'Internal error' }, { status: 500, headers: corsHeaders })
   }
 }
 
@@ -123,6 +135,7 @@ export async function GET(request: NextRequest) {
   const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64')
   return new NextResponse(gif, {
     headers: {
+      ...corsHeaders,
       'Content-Type': 'image/gif',
       'Cache-Control': 'no-store, no-cache, must-revalidate',
     }
