@@ -1,6 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import EasyPost from '@easypost/api'
 
+// Simple in-memory cache to avoid repeated API calls
+// Cache entries expire after 5 minutes
+const trackingCache = new Map<string, { data: TrackingResult; timestamp: number }>()
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
+function getCachedResult(trackingNumber: string): TrackingResult | null {
+  const cached = trackingCache.get(trackingNumber)
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data
+  }
+  // Clean up expired entry
+  if (cached) {
+    trackingCache.delete(trackingNumber)
+  }
+  return null
+}
+
+function setCachedResult(trackingNumber: string, data: TrackingResult): void {
+  trackingCache.set(trackingNumber, { data, timestamp: Date.now() })
+  // Clean up old entries if cache gets too large
+  if (trackingCache.size > 100) {
+    const now = Date.now()
+    for (const [key, value] of trackingCache.entries()) {
+      if (now - value.timestamp > CACHE_TTL) {
+        trackingCache.delete(key)
+      }
+    }
+  }
+}
+
 interface TrackingResult {
   trackingNumber: string
   status: string
@@ -59,10 +89,20 @@ async function getTrackingWithEasyPost(trackingNumbers: string[]): Promise<Track
 
   // Process tracking numbers
   for (const trackingNumber of trackingNumbers) {
+    const cleanTrackingNumber = trackingNumber.replace(/\s+/g, '')
+
+    // Check cache first
+    const cachedResult = getCachedResult(cleanTrackingNumber)
+    if (cachedResult) {
+      console.log(`Using cached result for ${cleanTrackingNumber}`)
+      results.push(cachedResult)
+      continue
+    }
+
     try {
       // Create a tracker for the tracking number
       const tracker = await client.Tracker.create({
-        tracking_code: trackingNumber.replace(/\s+/g, ''), // Remove spaces
+        tracking_code: cleanTrackingNumber,
         carrier: 'USPS',
       })
 
@@ -82,8 +122,8 @@ async function getTrackingWithEasyPost(trackingNumbers: string[]): Promise<Track
         ? [latestEvent.eventCity, latestEvent.eventState].filter(Boolean).join(', ')
         : ''
 
-      results.push({
-        trackingNumber,
+      const result: TrackingResult = {
+        trackingNumber: cleanTrackingNumber,
         status: mapStatus(tracker.status || ''),
         statusCategory: tracker.status || '',
         statusDescription: tracker.status_detail || tracker.status || 'No status available',
@@ -92,12 +132,17 @@ async function getTrackingWithEasyPost(trackingNumbers: string[]): Promise<Track
         lastLocation,
         carrier: tracker.carrier || 'USPS',
         events,
-      })
+      }
+
+      // Cache successful result
+      setCachedResult(cleanTrackingNumber, result)
+      results.push(result)
 
     } catch (error: any) {
       console.error(`Error tracking ${trackingNumber}:`, error)
+      // Don't cache errors - allow retry
       results.push({
-        trackingNumber,
+        trackingNumber: cleanTrackingNumber,
         status: 'unknown',
         statusCategory: '',
         statusDescription: error?.message || 'Failed to fetch tracking',

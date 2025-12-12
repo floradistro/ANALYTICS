@@ -69,7 +69,7 @@ export default function ShipmentsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [showSettings, setShowSettings] = useState(false)
-  const [autoRefresh, setAutoRefresh] = useState(true)
+  const [autoRefresh, setAutoRefresh] = useState(false) // Disabled by default to avoid rate limiting
   const [refreshInterval, setRefreshInterval] = useState(60) // seconds
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -79,6 +79,7 @@ export default function ShipmentsPage() {
 
   // Single shipment refresh state
   const [refreshingTrackingNumber, setRefreshingTrackingNumber] = useState<string | null>(null)
+  const [rateLimitError, setRateLimitError] = useState<string | null>(null)
 
   // Fetch shipping orders
   const fetchShippingOrders = useCallback(async () => {
@@ -169,22 +170,18 @@ export default function ShipmentsPage() {
     fetchShippingOrders()
   }, [fetchShippingOrders])
 
-  // Auto-fetch tracking when shipments load (only once per load)
-  const hasAutoFetched = useRef(false)
-  useEffect(() => {
-    if (shipments.length > 0 && !loading && !hasAutoFetched.current) {
-      const shipmentsWithTracking = shipments.filter(s => s.tracking_number && !s.trackingInfo)
-      if (shipmentsWithTracking.length > 0) {
-        hasAutoFetched.current = true
-        refreshTrackingInfo()
-      }
-    }
-  }, [shipments, loading, refreshTrackingInfo])
-
-  // Reset auto-fetch flag when date range changes
-  useEffect(() => {
-    hasAutoFetched.current = false
-  }, [dateRange])
+  // Auto-fetch disabled until EasyPost billing is set up
+  // Uncomment when ready:
+  // const hasAutoFetched = useRef(false)
+  // useEffect(() => {
+  //   if (shipments.length > 0 && !loading && !hasAutoFetched.current) {
+  //     const shipmentsWithTracking = shipments.filter(s => s.tracking_number && !s.trackingInfo)
+  //     if (shipmentsWithTracking.length > 0) {
+  //       hasAutoFetched.current = true
+  //       refreshTrackingInfo()
+  //     }
+  //   }
+  // }, [shipments, loading, refreshTrackingInfo])
 
   // Auto-refresh timer
   useEffect(() => {
@@ -204,6 +201,7 @@ export default function ShipmentsPage() {
   // Refresh tracking for a single shipment
   const refreshSingleShipment = useCallback(async (trackingNumber: string) => {
     setRefreshingTrackingNumber(trackingNumber)
+    setRateLimitError(null)
 
     try {
       const response = await fetch('/api/usps/track', {
@@ -212,14 +210,34 @@ export default function ShipmentsPage() {
         body: JSON.stringify({ trackingNumbers: [trackingNumber.replace(/\s+/g, '')] }),
       })
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
       const results = await response.json()
+
+      // Check for rate limit or billing errors in response
+      if (!response.ok || (Array.isArray(results) && results[0]?.error)) {
+        const errorMsg = results[0]?.error || results?.error || `HTTP ${response.status}`
+        if (errorMsg.includes('rate-limited') || errorMsg.includes('rate limit') || response.status === 429) {
+          setRateLimitError('EasyPost API rate limited. Please wait a few minutes and try again.')
+          setRefreshingTrackingNumber(null)
+          return
+        }
+        if (errorMsg.includes('Insufficient funds') || errorMsg.includes('billing') || response.status === 402) {
+          setRateLimitError('EasyPost billing not set up. Add a payment method at easypost.com/account')
+          setRefreshingTrackingNumber(null)
+          return
+        }
+        throw new Error(errorMsg)
+      }
 
       if (Array.isArray(results) && results.length > 0) {
         const result = results[0]
+        // Check if result has error
+        if (result.error) {
+          if (result.error.includes('rate-limited') || result.error.includes('rate limit')) {
+            setRateLimitError('EasyPost API rate limited. Please wait a few minutes and try again.')
+            setRefreshingTrackingNumber(null)
+            return
+          }
+        }
         setShipments(prev => prev.map(s => {
           if (s.tracking_number === trackingNumber) {
             return { ...s, trackingInfo: result, isLoading: false }
@@ -228,8 +246,12 @@ export default function ShipmentsPage() {
         }))
         setLastRefresh(new Date())
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to refresh tracking:', error)
+      const errorMsg = error?.message || ''
+      if (errorMsg.includes('rate-limited') || errorMsg.includes('rate limit')) {
+        setRateLimitError('EasyPost API rate limited. Please wait a few minutes and try again.')
+      }
     }
 
     setRefreshingTrackingNumber(null)
@@ -337,6 +359,22 @@ export default function ShipmentsPage() {
           </button>
         </div>
       </div>
+
+      {/* Rate Limit Error Banner */}
+      {rateLimitError && (
+        <div className="bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <span className="text-sm text-red-400">{rateLimitError}</span>
+          </div>
+          <button
+            onClick={() => setRateLimitError(null)}
+            className="text-red-400 hover:text-red-300 text-xl"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-4">

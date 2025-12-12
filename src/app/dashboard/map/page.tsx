@@ -25,19 +25,22 @@ const MapboxMap = dynamic(() => import('@/components/map/MapboxMap'), {
 interface GeoPoint {
   lat: number
   lng: number
-  type: 'store' | 'shipping' | 'customer'
+  type: 'store' | 'shipping' | 'customer' | 'traffic'
   revenue: number
   orders: number
   customers?: number
   city?: string
   state?: string
   name?: string
+  device?: string
+  timestamp?: string
 }
 
 interface MapLayers {
   stores: GeoPoint[]
   customers: GeoPoint[]
   shipping: GeoPoint[]
+  traffic: GeoPoint[]
 }
 
 interface MapStats {
@@ -53,8 +56,8 @@ export default function MapDashboardPage() {
   const { dateRange } = useDashboardStore()
   const [isLoading, setIsLoading] = useState(true)
   const [showAllTime, setShowAllTime] = useState(true) // Default to ALL data
-  const [layers, setLayers] = useState<MapLayers>({ stores: [], customers: [], shipping: [] })
-  const [visibleLayers, setVisibleLayers] = useState({ stores: true, customers: true, shipping: true })
+  const [layers, setLayers] = useState<MapLayers>({ stores: [], customers: [], shipping: [], traffic: [] })
+  const [visibleLayers, setVisibleLayers] = useState({ stores: true, customers: true, shipping: true, traffic: true })
   const [stats, setStats] = useState<MapStats>({
     totalOrders: 0,
     totalRevenue: 0,
@@ -65,7 +68,7 @@ export default function MapDashboardPage() {
   const [stateData, setStateData] = useState<Map<string, { orders: number; revenue: number }>>(new Map())
   const [customerCount, setCustomerCount] = useState(0)
   const [shippingCount, setShippingCount] = useState(0)
-  const [geocodeProgress, setGeocodeProgress] = useState<{ completed: number; total: number } | null>(null)
+  const [trafficCount, setTrafficCount] = useState(0)
 
   // Fetch data
   const fetchData = useCallback(async () => {
@@ -85,10 +88,8 @@ export default function MapDashboardPage() {
       while (true) {
         let query = supabase
           .from('orders')
-          .select('id, customer_id, shipping_address_line1, shipping_city, shipping_state, shipping_postal_code, total_amount, order_type, pickup_location_id, created_at')
+          .select('id, customer_id, shipping_name, shipping_address, shipping_city, shipping_state, total_amount, order_type, pickup_location_id, created_at')
           .eq('vendor_id', vendorId)
-          .eq('payment_status', 'paid')  // Only count paid orders
-          .neq('status', 'cancelled')     // Exclude cancelled
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
         if (!showAllTime) {
@@ -99,7 +100,7 @@ export default function MapDashboardPage() {
 
         const { data: orders, error } = await query
         if (error) {
-          console.error('Orders fetch error:', error)
+          console.error('Orders fetch error:', error.message, error.code, error.details)
           break
         }
         if (!orders || orders.length === 0) break
@@ -224,138 +225,153 @@ export default function MapDashboardPage() {
         customerDataMap.set(c.id, { total_spent: c.total_spent, total_orders: c.total_orders, city: c.city, state: c.state })
       }
 
-      // Start batch geocoding in background (with progress updates)
+      // Geocode customer addresses using Mapbox (fast parallel processing!)
       const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
       if (customersWithAddresses.length > 0 && mapboxToken) {
-        setGeocodeProgress({ completed: 0, total: customersWithAddresses.length })
-
-        // Geocode asynchronously using Mapbox (fast parallel processing!)
-        batchGeocodeAddresses(
+        console.log('Geocoding', customersWithAddresses.length, 'customer addresses...')
+        const customerResults = await batchGeocodeAddresses(
           customersWithAddresses,
-          mapboxToken,
-          (completed, total, results) => {
-            setGeocodeProgress({ completed, total })
-
-            // Build customer points from geocoded results
-            const newCustomerPoints: GeoPoint[] = []
-
-            for (const [id, coords] of results) {
-              if (!coords) continue
-              const data = customerDataMap.get(id)
-              if (!data) continue
-
-              // Add very small jitter for exact addresses
-              const jitterLat = (Math.random() - 0.5) * 0.001
-              const jitterLng = (Math.random() - 0.5) * 0.001
-
-              newCustomerPoints.push({
-                lat: coords.lat + jitterLat,
-                lng: coords.lng + jitterLng,
-                type: 'customer',
-                revenue: data.total_spent,
-                orders: data.total_orders,
-                customers: 1,
-                city: data.city,
-                state: data.state,
-              })
-            }
-
-            // Add city-only customers
-            for (const customer of customersWithCityOnly) {
-              const coords = getCityCoordinates(customer.city, customer.state)
-              if (!coords) continue
-
-              const jitterLat = (Math.random() - 0.5) * 0.03
-              const jitterLng = (Math.random() - 0.5) * 0.03
-
-              newCustomerPoints.push({
-                lat: coords.lat + jitterLat,
-                lng: coords.lng + jitterLng,
-                type: 'customer',
-                revenue: customer.total_spent || 0,
-                orders: customer.total_orders || 0,
-                customers: 1,
-                city: customer.city || undefined,
-                state: customer.state,
-              })
-            }
-
-            // Update the layers with new customer points
-            setLayers(prev => ({ ...prev, customers: newCustomerPoints }))
-
-            // Clear progress when complete
-            if (completed === total) {
-              setGeocodeProgress(null)
-            }
-          }
+          mapboxToken
         )
-      } else {
-        // No addresses to geocode, just use city coordinates
-        for (const customer of customersWithCityOnly) {
-          const coords = getCityCoordinates(customer.city, customer.state)
-          if (!coords) continue
 
-          const jitterLat = (Math.random() - 0.5) * 0.03
-          const jitterLng = (Math.random() - 0.5) * 0.03
+        for (const [id, coords] of customerResults) {
+          if (!coords) continue
+          const data = customerDataMap.get(id)
+          if (!data) continue
+
+          const jitterLat = (Math.random() - 0.5) * 0.001
+          const jitterLng = (Math.random() - 0.5) * 0.001
 
           customerPoints.push({
             lat: coords.lat + jitterLat,
             lng: coords.lng + jitterLng,
             type: 'customer',
-            revenue: customer.total_spent || 0,
-            orders: customer.total_orders || 0,
+            revenue: data.total_spent,
+            orders: data.total_orders,
             customers: 1,
-            city: customer.city || undefined,
-            state: customer.state,
+            city: data.city,
+            state: data.state,
           })
         }
+      }
+
+      // Add city-only customers (no full address)
+      for (const customer of customersWithCityOnly) {
+        const coords = getCityCoordinates(customer.city, customer.state)
+        if (!coords) continue
+
+        const jitterLat = (Math.random() - 0.5) * 0.03
+        const jitterLng = (Math.random() - 0.5) * 0.03
+
+        customerPoints.push({
+          lat: coords.lat + jitterLat,
+          lng: coords.lng + jitterLng,
+          type: 'customer',
+          revenue: customer.total_spent || 0,
+          orders: customer.total_orders || 0,
+          customers: 1,
+          city: customer.city || undefined,
+          state: customer.state,
+        })
       }
 
       const totalCustomers = customersWithAddresses.length + customersWithCityOnly.length
       console.log('Total customer points:', totalCustomers)
 
-      // === LAYER 3: SHIPPING HEATMAP (orders shipped to customers) ===
+      // === LAYER 3: SHIPPING ORDERS (individual geocoded locations) ===
+      const shippingWithAddresses: Array<{
+        address: string; city: string; state: string; id: string;
+        total_amount: number
+      }> = []
+      const shippingWithStateOnly: Array<{ state: string; total_amount: number; id: string }> = []
       const shippingStateAgg = new Map<string, { orders: number; revenue: number }>()
+
       for (const order of orders || []) {
-        // Count shipping/delivery orders - use shipping_state OR customer state
         const isShippingOrder = order.order_type === 'shipping' || order.order_type === 'delivery'
 
         if (isShippingOrder || order.shipping_state) {
-          let state: string | null = null
-
-          // Try shipping_state first
-          if (order.shipping_state) {
-            state = normalizeState(order.shipping_state)
-          }
-          // Fallback to customer state for shipping orders
-          else if (order.customer_id && customerMap.has(order.customer_id)) {
-            const customer = customerMap.get(order.customer_id)
-            if (customer?.state) {
-              state = normalizeState(customer.state)
-            }
-          }
+          const state = order.shipping_state ? normalizeState(order.shipping_state) : null
 
           if (state) {
+            // Track state aggregation for sidebar
             const existing = shippingStateAgg.get(state) || { orders: 0, revenue: 0 }
             existing.orders += 1
             existing.revenue += order.total_amount || 0
             shippingStateAgg.set(state, existing)
+
+            // Collect for geocoding
+            if (order.shipping_address && order.shipping_city) {
+              shippingWithAddresses.push({
+                id: order.id,
+                address: order.shipping_address,
+                city: order.shipping_city,
+                state,
+                total_amount: order.total_amount || 0,
+              })
+            } else {
+              shippingWithStateOnly.push({
+                id: order.id,
+                state,
+                total_amount: order.total_amount || 0,
+              })
+            }
           }
         }
       }
 
+      console.log('Shipping orders with addresses:', shippingWithAddresses.length)
+      console.log('Shipping orders state-only:', shippingWithStateOnly.length)
+
+      // Create shipping data map for lookup
+      const shippingDataMap = new Map<string, { total_amount: number; city: string; state: string }>()
+      for (const s of shippingWithAddresses) {
+        shippingDataMap.set(s.id, { total_amount: s.total_amount, city: s.city, state: s.state })
+      }
+
       const shippingPoints: GeoPoint[] = []
-      for (const [state, data] of shippingStateAgg) {
-        const coords = getStateCentroid(state)
-        if (coords) {
+
+      // Geocode shipping addresses in parallel
+      if (shippingWithAddresses.length > 0 && mapboxToken) {
+        const shippingResults = await batchGeocodeAddresses(
+          shippingWithAddresses,
+          mapboxToken
+        )
+
+        for (const [id, coords] of shippingResults) {
+          if (!coords) continue
+          const data = shippingDataMap.get(id)
+          if (!data) continue
+
+          const jitterLat = (Math.random() - 0.5) * 0.001
+          const jitterLng = (Math.random() - 0.5) * 0.001
+
           shippingPoints.push({
-            lat: coords.lat,
-            lng: coords.lng,
+            lat: coords.lat + jitterLat,
+            lng: coords.lng + jitterLng,
             type: 'shipping',
-            revenue: data.revenue,
-            orders: data.orders,
-            state,
+            revenue: data.total_amount,
+            orders: 1,
+            city: data.city,
+            state: data.state,
+          })
+        }
+      }
+
+      // Add state-only shipping orders at state centroids
+      for (const order of shippingWithStateOnly) {
+        const coords = getStateCentroid(order.state)
+        if (coords) {
+          const jitterLat = (Math.random() - 0.5) * 0.1
+          const jitterLng = (Math.random() - 0.5) * 0.1
+
+          shippingPoints.push({
+            lat: coords.lat + jitterLat,
+            lng: coords.lng + jitterLng,
+            type: 'shipping',
+            revenue: order.total_amount,
+            orders: 1,
+            state: order.state,
           })
         }
       }
@@ -383,6 +399,37 @@ export default function MapDashboardPage() {
         combinedStateAgg.set(state, existing)
       }
 
+      // === LAYER 4: WEBSITE TRAFFIC (visitor geolocation) ===
+      const trafficPoints: GeoPoint[] = []
+
+      const { data: visitors } = await supabase
+        .from('website_visitors')
+        .select('latitude, longitude, city, region, country, device_type, created_at')
+        .eq('vendor_id', vendorId)
+        .not('latitude', 'is', null)
+        .order('created_at', { ascending: false })
+        .limit(1000)
+
+      if (visitors) {
+        for (const visitor of visitors) {
+          if (visitor.latitude && visitor.longitude) {
+            trafficPoints.push({
+              lat: visitor.latitude,
+              lng: visitor.longitude,
+              type: 'traffic',
+              revenue: 0,
+              orders: 0,
+              city: visitor.city || undefined,
+              state: visitor.region || undefined,
+              device: visitor.device_type || undefined,
+              timestamp: visitor.created_at,
+            })
+          }
+        }
+      }
+
+      console.log('Traffic points:', trafficPoints.length)
+
       // Calculate total stats
       const totalStoreOrders = Array.from(storeOrderAgg.values()).reduce((sum, d) => sum + d.orders, 0)
       const totalStoreRevenue = Array.from(storeOrderAgg.values()).reduce((sum, d) => sum + d.revenue, 0)
@@ -399,11 +446,13 @@ export default function MapDashboardPage() {
         storeOrders: totalStoreOrders,
         shippingOrders: totalShippingOrders,
         customersWithState: customerTotal,
+        trafficVisitors: trafficPoints.length,
         totalRevenue: Math.round(totalRevenue),
       })
 
-      // Set initial layers (customers will be updated as geocoding progresses)
-      setLayers({ stores: storePoints, customers: customerPoints, shipping: shippingPoints })
+      // Set all layers
+      setLayers({ stores: storePoints, customers: customerPoints, shipping: shippingPoints, traffic: trafficPoints })
+      setTrafficCount(trafficPoints.length)
       setStateData(combinedStateAgg)
       setCustomerCount(customerTotal)
       setShippingCount(totalShippingOrders)
@@ -497,23 +546,6 @@ export default function MapDashboardPage() {
             </span>
           </div>
 
-          {/* Geocoding progress indicator */}
-          {geocodeProgress && (
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/80 backdrop-blur-sm border border-purple-500/50 z-30">
-              <div className="flex items-center gap-3">
-                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
-                <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider">
-                  Geocoding addresses: {geocodeProgress.completed}/{geocodeProgress.total}
-                </span>
-                <div className="w-20 h-1 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-purple-500 transition-all duration-300"
-                    style={{ width: `${(geocodeProgress.completed / geocodeProgress.total) * 100}%` }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Stats panel */}
@@ -646,6 +678,21 @@ export default function MapDashboardPage() {
                   <span className="text-[10px] font-mono uppercase">Shipping</span>
                 </div>
                 <span className="text-[10px] font-mono">{shippingCount} orders</span>
+              </button>
+
+              <button
+                onClick={() => setVisibleLayers(v => ({ ...v, traffic: !v.traffic }))}
+                className={`w-full flex items-center justify-between py-2 px-2 border transition-colors ${
+                  visibleLayers.traffic
+                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                    : 'bg-zinc-900/30 border-zinc-800/30 text-zinc-500'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${visibleLayers.traffic ? 'bg-rose-400' : 'bg-zinc-600'}`} />
+                  <span className="text-[10px] font-mono uppercase">Web Traffic</span>
+                </div>
+                <span className="text-[10px] font-mono">{trafficCount} visitors</span>
               </button>
             </div>
           </div>

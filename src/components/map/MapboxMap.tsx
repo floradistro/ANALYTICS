@@ -10,24 +10,27 @@ const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 interface GeoPoint {
   lat: number
   lng: number
-  type: 'store' | 'shipping' | 'customer'
+  type: 'store' | 'shipping' | 'customer' | 'traffic'
   revenue: number
   orders: number
   customers?: number
   city?: string
   state?: string
   name?: string
+  device?: string
+  timestamp?: string
 }
 
 interface MapLayers {
   stores: GeoPoint[]
   customers: GeoPoint[]
   shipping: GeoPoint[]
+  traffic: GeoPoint[]
 }
 
 interface MapboxMapProps {
   layers: MapLayers
-  visibleLayers: { stores: boolean; customers: boolean; shipping: boolean }
+  visibleLayers: { stores: boolean; customers: boolean; shipping: boolean; traffic: boolean }
   isLoading: boolean
 }
 
@@ -275,6 +278,63 @@ export default function MapboxMap({ layers, visibleLayers, isLoading }: MapboxMa
       })
     }
 
+    // === WEB TRAFFIC (Rose/Red) ===
+    removeLayerAndSource('traffic', 'traffic-data')
+    if (visibleLayers.traffic && layers.traffic && layers.traffic.length > 0) {
+      const trafficGeoJson: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: layers.traffic.map(p => ({
+          type: 'Feature' as const,
+          geometry: { type: 'Point' as const, coordinates: [p.lng, p.lat] },
+          properties: {
+            city: p.city || '',
+            state: p.state || '',
+            device: p.device || 'unknown',
+            timestamp: p.timestamp || '',
+          },
+        })),
+      }
+
+      m.addSource('traffic-data', { type: 'geojson', data: trafficGeoJson })
+
+      // Traffic heatmap - shows density of visitors
+      m.addLayer({
+        id: 'traffic-heat',
+        type: 'heatmap',
+        source: 'traffic-data',
+        paint: {
+          'heatmap-weight': 1,
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 4, 0.6, 8, 1.2, 12, 2],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 4, 20, 8, 30, 12, 45],
+          'heatmap-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.8, 12, 0.4],
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0, 0, 0, 0)',
+            0.1, 'rgba(225, 29, 72, 0.2)',
+            0.3, 'rgba(244, 63, 94, 0.4)',
+            0.5, 'rgba(251, 113, 133, 0.5)',
+            0.7, 'rgba(253, 164, 175, 0.6)',
+            1, 'rgba(255, 228, 230, 0.8)',
+          ],
+        },
+      })
+
+      // Individual traffic points (visible when zoomed in)
+      m.addLayer({
+        id: 'traffic',
+        type: 'circle',
+        source: 'traffic-data',
+        minzoom: 6,
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 10, 5, 14, 8],
+          'circle-color': '#f43f5e',
+          'circle-opacity': ['interpolate', ['linear'], ['zoom'], 6, 0.4, 10, 0.8],
+          'circle-stroke-width': 1,
+          'circle-stroke-color': '#fb7185',
+        },
+      })
+    }
+
   }, [mapLoaded, layers, visibleLayers])
 
   // Separate effect for click handlers to avoid re-registering
@@ -317,6 +377,19 @@ export default function MapboxMap({ layers, visibleLayers, isLoading }: MapboxMa
             </div>
           </div>
         `
+      } else if (layerId === 'traffic') {
+        const location = props.city ? `${props.city}, ${props.state}` : (props.state || 'Unknown')
+        const time = props.timestamp ? new Date(props.timestamp).toLocaleString() : ''
+        content = `
+          <div style="background: rgba(0,0,0,0.95); border: 1px solid ${color}; padding: 12px 16px; font-family: monospace; min-width: 160px;">
+            <div style="color: ${color}; font-size: 14px; font-weight: bold; margin-bottom: 4px;">VISITOR</div>
+            <div style="color: #a1a1aa; font-size: 11px; margin-bottom: 8px;">${location}</div>
+            <div style="display: flex; gap: 16px;">
+              <div><span style="color: #71717a; font-size: 10px;">DEVICE</span><br/><span style="color: #fff;">${props.device || 'unknown'}</span></div>
+            </div>
+            ${time ? `<div style="color: #52525b; font-size: 9px; margin-top: 8px;">${time}</div>` : ''}
+          </div>
+        `
       } else {
         content = `
           <div style="background: rgba(0,0,0,0.95); border: 1px solid ${color}; padding: 12px 16px; font-family: monospace; min-width: 160px;">
@@ -339,6 +412,7 @@ export default function MapboxMap({ layers, visibleLayers, isLoading }: MapboxMa
     const onStoreClick = (e: mapboxgl.MapLayerMouseEvent) => createPopup(e, 'stores', '#f59e0b')
     const onCustomerClick = (e: mapboxgl.MapLayerMouseEvent) => createPopup(e, 'customers', '#a855f7')
     const onShippingClick = (e: mapboxgl.MapLayerMouseEvent) => createPopup(e, 'shipping', '#14b8a6')
+    const onTrafficClick = (e: mapboxgl.MapLayerMouseEvent) => createPopup(e, 'traffic', '#f43f5e')
 
     const setCursor = () => { m.getCanvas().style.cursor = 'pointer' }
     const resetCursor = () => { m.getCanvas().style.cursor = '' }
@@ -347,6 +421,7 @@ export default function MapboxMap({ layers, visibleLayers, isLoading }: MapboxMa
     m.on('click', 'stores', onStoreClick)
     m.on('click', 'customers', onCustomerClick)
     m.on('click', 'shipping', onShippingClick)
+    m.on('click', 'traffic', onTrafficClick)
 
     m.on('mouseenter', 'stores', setCursor)
     m.on('mouseleave', 'stores', resetCursor)
@@ -354,18 +429,23 @@ export default function MapboxMap({ layers, visibleLayers, isLoading }: MapboxMa
     m.on('mouseleave', 'customers', resetCursor)
     m.on('mouseenter', 'shipping', setCursor)
     m.on('mouseleave', 'shipping', resetCursor)
+    m.on('mouseenter', 'traffic', setCursor)
+    m.on('mouseleave', 'traffic', resetCursor)
 
     // Cleanup
     return () => {
       m.off('click', 'stores', onStoreClick)
       m.off('click', 'customers', onCustomerClick)
       m.off('click', 'shipping', onShippingClick)
+      m.off('click', 'traffic', onTrafficClick)
       m.off('mouseenter', 'stores', setCursor)
       m.off('mouseleave', 'stores', resetCursor)
       m.off('mouseenter', 'customers', setCursor)
       m.off('mouseleave', 'customers', resetCursor)
       m.off('mouseenter', 'shipping', setCursor)
       m.off('mouseleave', 'shipping', resetCursor)
+      m.off('mouseenter', 'traffic', setCursor)
+      m.off('mouseleave', 'traffic', resetCursor)
     }
   }, [mapLoaded])
 

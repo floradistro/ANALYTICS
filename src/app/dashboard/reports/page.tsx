@@ -51,6 +51,22 @@ interface PaymentStats {
   successRate: number
 }
 
+// Format payment method names for display
+const formatPaymentMethod = (method: string): string => {
+  const methodMap: Record<string, string> = {
+    'cash': 'Cash',
+    'card': 'Credit/Debit Card',
+    'credit_card': 'Credit Card',
+    'debit_card': 'Debit Card',
+    'apple_pay': 'Apple Pay',
+    'google_pay': 'Google Pay',
+    'split': 'Split Payment',
+    'dev_test': 'Test Payment',
+    'authorizenet': 'Credit Card',
+  }
+  return methodMap[method.toLowerCase()] || method.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
 export default function FinancialReportsPage() {
   const { vendorId } = useAuthStore()
   const { dateRange } = useDashboardStore()
@@ -173,18 +189,19 @@ export default function FinancialReportsPage() {
     const { start, end } = getDateRangeForQuery()
 
     try {
-      // Fetch ALL checkout attempts with pagination
+      // Fetch ALL PAID orders with payment method (not checkout_attempts)
       const pageSize = 1000
-      let allAttempts: { payment_method: string; subtotal: number; status: string }[] = []
+      let allOrders: { payment_method: string; total_amount: number }[] = []
       let page = 0
       let hasMore = true
 
       while (hasMore) {
         const { data, error } = await supabase
-          .from('checkout_attempts')
-          .select('payment_method, subtotal, status')
+          .from('orders')
+          .select('payment_method, total_amount')
           .eq('vendor_id', vendorId)
-          .in('status', ['approved', 'completed'])
+          .eq('payment_status', 'paid')
+          .neq('status', 'cancelled')
           .gte('created_at', start)
           .lte('created_at', end)
           .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -192,7 +209,7 @@ export default function FinancialReportsPage() {
         if (error) throw error
 
         if (data && data.length > 0) {
-          allAttempts = [...allAttempts, ...data]
+          allOrders = [...allOrders, ...data]
           hasMore = data.length === pageSize
         } else {
           hasMore = false
@@ -202,18 +219,18 @@ export default function FinancialReportsPage() {
 
       const methodMap = new Map<string, { count: number; amount: number }>()
 
-      allAttempts.forEach((attempt) => {
-        const method = attempt.payment_method || 'Unknown'
+      allOrders.forEach((order) => {
+        const method = order.payment_method || 'Unknown'
         const existing = methodMap.get(method) || { count: 0, amount: 0 }
         methodMap.set(method, {
           count: existing.count + 1,
-          amount: existing.amount + (attempt.subtotal || 0),
+          amount: existing.amount + (order.total_amount || 0),
         })
       })
 
       const breakdown = Array.from(methodMap.entries())
         .map(([method, data]) => ({
-          method: method.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          method: formatPaymentMethod(method),
           ...data,
         }))
         .sort((a, b) => b.amount - a.amount)
@@ -231,17 +248,18 @@ export default function FinancialReportsPage() {
     const { start, end } = getDateRangeForQuery()
 
     try {
-      // Fetch ALL checkout attempts with pagination
+      // Fetch ALL orders payment status (not checkout_attempts)
       const pageSize = 1000
-      let allAttempts: { status: string }[] = []
+      let allOrders: { payment_status: string }[] = []
       let page = 0
       let hasMore = true
 
       while (hasMore) {
         const { data, error } = await supabase
-          .from('checkout_attempts')
-          .select('status')
+          .from('orders')
+          .select('payment_status')
           .eq('vendor_id', vendorId)
+          .neq('status', 'cancelled')
           .gte('created_at', start)
           .lte('created_at', end)
           .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -249,7 +267,7 @@ export default function FinancialReportsPage() {
         if (error) throw error
 
         if (data && data.length > 0) {
-          allAttempts = [...allAttempts, ...data]
+          allOrders = [...allOrders, ...data]
           hasMore = data.length === pageSize
         } else {
           hasMore = false
@@ -257,9 +275,9 @@ export default function FinancialReportsPage() {
         page++
       }
 
-      const successful = allAttempts.filter((a) => a.status === 'approved' || a.status === 'completed').length
-      const failed = allAttempts.filter((a) => a.status === 'failed' || a.status === 'declined').length
-      const pending = allAttempts.filter((a) => a.status === 'pending').length
+      const successful = allOrders.filter((o) => o.payment_status === 'paid').length
+      const failed = allOrders.filter((o) => o.payment_status === 'failed').length
+      const pending = allOrders.filter((o) => o.payment_status === 'pending').length
       const total = successful + failed + pending
       const successRate = total > 0 ? (successful / total) * 100 : 0
 
