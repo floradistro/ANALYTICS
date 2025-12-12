@@ -82,8 +82,10 @@ export async function POST(request: NextRequest) {
     const {
       vendor_id,
       page_url,
+      page_path,
       referrer,
       visitor_id,
+      session_id,
       // UTM parameters
       utm_source,
       utm_medium,
@@ -95,29 +97,38 @@ export async function POST(request: NextRequest) {
       screen_height,
       // Return visitor flag
       is_returning,
+      is_new_session,
+      // Source: 'edge' for server-side, 'client' for browser
+      source,
+      // User agent from edge middleware
+      user_agent,
+      // Geo from edge middleware
+      city: edgeCity,
+      region: edgeRegion,
+      country: edgeCountry,
     } = body
 
     if (!vendor_id) {
       return NextResponse.json({ error: 'vendor_id required' }, { status: 400, headers: corsHeaders })
     }
 
-    // Get geolocation from Vercel headers (automatically provided)
+    // Get geolocation - prefer edge-provided, fallback to Vercel headers
     const latitude = request.headers.get('x-vercel-ip-latitude')
     const longitude = request.headers.get('x-vercel-ip-longitude')
-    const city = request.headers.get('x-vercel-ip-city')
-    const region = request.headers.get('x-vercel-ip-country-region')
-    const country = request.headers.get('x-vercel-ip-country')
+    const city = edgeCity || request.headers.get('x-vercel-ip-city')
+    const region = edgeRegion || request.headers.get('x-vercel-ip-country-region')
+    const country = edgeCountry || request.headers.get('x-vercel-ip-country')
 
-    // Get user agent for device detection
-    const userAgent = request.headers.get('user-agent') || ''
+    // Get user agent for device detection - prefer edge-provided
+    const userAgent = user_agent || request.headers.get('user-agent') || ''
     const deviceType = detectDeviceType(userAgent)
     const { browser, os } = parseUserAgent(userAgent)
 
     // Detect channel from referrer and UTM
     const channel = detectChannel(referrer, utm_source, utm_medium)
 
-    // Generate unique session ID
-    const sessionId = generateSessionId()
+    // Use provided session ID or generate new one
+    const sessionId = session_id || generateSessionId()
 
     // Insert visitor record
     const { error } = await supabase
@@ -158,28 +169,29 @@ export async function POST(request: NextRequest) {
 
     // Also insert page view record (every page view, not just unique sessions)
     const { page_title } = body
-    const pagePath = page_url ? new URL(page_url).pathname : '/'
+    let pagePath = page_path
+    if (!pagePath && page_url) {
+      try {
+        pagePath = new URL(page_url).pathname
+      } catch {
+        pagePath = '/'
+      }
+    }
 
-    await supabase
+    // Only use columns that exist in page_views table
+    const { error: pvError } = await supabase
       .from('page_views')
       .insert({
         vendor_id,
         visitor_id,
         session_id: sessionId,
         page_url,
-        page_path: pagePath,
         page_title: page_title || null,
-        referrer,
-        city: city ? decodeURIComponent(city) : null,
-        region,
-        country,
-        device_type: deviceType,
-        browser,
-        os,
-        channel,
-        utm_source,
-        utm_campaign,
       })
+
+    if (pvError) {
+      console.error('Page view tracking error:', pvError.message)
+    }
 
     return NextResponse.json({
       success: true,

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme, colors, formatCurrency } from '@/lib/theme'
 
 interface TopProduct {
   id: string
@@ -15,44 +15,20 @@ interface TopProductsChartProps {
 }
 
 export function TopProductsChart({ data }: TopProductsChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) {
-        const { width, height } = entry.contentRect
-        if (width > 0 && height > 0) {
-          setDimensions({ width, height })
-        }
-      }
-    })
-
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-    }).format(value)
-
   const chartData = data.map((item) => ({
-    ...item,
-    shortName: item.name.length > 20 ? item.name.substring(0, 20) + '...' : item.name,
+    product: item.name.length > 20 ? item.name.substring(0, 20) + '...' : item.name,
+    fullName: item.name,
+    revenue: item.revenue,
+    totalSold: item.totalSold,
   }))
 
   if (data.length === 0) {
     return (
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide">Top Products by Revenue</h3>
-        <div className="h-[300px] flex items-center justify-center text-zinc-500 text-sm">
+      <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+        <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">
+          Top Products by Revenue
+        </h3>
+        <div className="h-[200px] lg:h-[300px] flex items-center justify-center text-zinc-600 text-xs lg:text-sm">
           No product data available
         </div>
       </div>
@@ -60,48 +36,53 @@ export function TopProductsChart({ data }: TopProductsChartProps) {
   }
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 p-6">
-      <h3 className="text-sm font-light text-white mb-6 tracking-wide">Top Products by Revenue</h3>
-      <div ref={containerRef} className="h-[300px] min-h-[300px]">
-        {dimensions.width > 0 && dimensions.height > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" horizontal={false} />
-              <XAxis
-                type="number"
-                tickFormatter={formatCurrency}
-                stroke="#52525b"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                type="category"
-                dataKey="shortName"
-                stroke="#52525b"
-                fontSize={11}
-                width={150}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                formatter={(value: number) => [formatCurrency(value), 'Revenue']}
-                labelFormatter={(label: string) => {
-                  const item = chartData.find((d) => d.shortName === label)
-                  return item?.name || label
-                }}
-                contentStyle={{
-                  backgroundColor: '#18181b',
-                  border: '1px solid #27272a',
-                  borderRadius: '0',
-                  color: '#f5f5f7',
-                }}
-                labelStyle={{ color: '#71717a' }}
-              />
-              <Bar dataKey="revenue" fill="#10b981" radius={[0, 2, 2, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
+    <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+      <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">
+        Top Products by Revenue
+      </h3>
+      <div className="h-[200px] lg:h-[300px]">
+        <ResponsiveBar
+          data={chartData}
+          theme={nivoTheme}
+          keys={['revenue']}
+          indexBy="product"
+          layout="horizontal"
+          margin={{ top: 10, right: 20, bottom: 10, left: 120 }}
+          padding={0.35}
+          colors={[colors.chart.seriesBlue[1]]}
+          borderRadius={3}
+          enableGridX={true}
+          enableGridY={false}
+          axisTop={null}
+          axisRight={null}
+          axisBottom={null}
+          axisLeft={{
+            tickSize: 0,
+            tickPadding: 12,
+            tickRotation: 0,
+          }}
+          enableLabel={false}
+          tooltip={({ data: d, value }) => (
+            <div
+              style={{
+                background: colors.chart.tooltip.bg,
+                border: `1px solid ${colors.chart.tooltip.border}`,
+                borderRadius: '6px',
+                padding: '12px 16px',
+              }}
+            >
+              <div className="text-xs text-zinc-400 mb-1">{d.fullName}</div>
+              <div className="text-sm font-medium text-zinc-100">
+                {formatCurrency(value)}
+              </div>
+              <div className="text-xs text-zinc-500">
+                {d.totalSold} units sold
+              </div>
+            </div>
+          )}
+          animate={true}
+          motionConfig="gentle"
+        />
       </div>
     </div>
   )

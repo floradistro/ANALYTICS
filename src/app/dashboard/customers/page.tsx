@@ -214,8 +214,8 @@ export default function CustomersPage() {
     const styles: Record<string, string> = {
       bronze: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
       silver: 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20',
-      gold: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-      platinum: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+      gold: 'bg-slate-700/30 text-slate-300 border border-slate-600/30',
+      platinum: 'bg-slate-700/40 text-slate-200 border border-slate-600/40',
       diamond: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
     }
     return styles[tier] || 'bg-zinc-800 text-zinc-400 border border-zinc-700'
@@ -322,135 +322,135 @@ export default function CustomersPage() {
   const totalPages = Math.ceil(totalCount / pageSize)
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-light text-white tracking-wide">Customers</h1>
-          <p className="text-zinc-500 text-sm font-light mt-1">Manage your customer base and loyalty program</p>
+          <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Customers</h1>
+          <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">Manage your customer base and loyalty program</p>
         </div>
         <button
           onClick={exportCustomers}
-          className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm font-light"
+          className="flex items-center gap-2 px-3 lg:px-4 py-1.5 lg:py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-xs lg:text-sm font-light self-start sm:self-auto"
         >
-          <Download className="w-4 h-4" />
-          Export CSV
+          <Download className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
+          Export
         </button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Users className="w-5 h-5 text-emerald-500" />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-4">
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <Users className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Total Customers</p>
-          <p className="text-2xl font-light text-white mt-1">{stats.total.toLocaleString()}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Total Customers</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{stats.total.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <UserPlus className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <UserPlus className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">New This Month</p>
-          <p className="text-2xl font-light text-white mt-1">{stats.newThisMonth.toLocaleString()}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">New This Month</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{stats.newThisMonth.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <TrendingUp className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Avg Lifetime Value</p>
-          <p className="text-2xl font-light text-white mt-1">{formatCurrency(stats.avgLifetimeValue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Avg LTV</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(stats.avgLifetimeValue)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Award className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <Award className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Premium Members</p>
-          <p className="text-2xl font-light text-white mt-1">{stats.topTier.toLocaleString()}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Premium</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{stats.topTier.toLocaleString()}</p>
         </div>
       </div>
 
       {/* Search */}
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zinc-500" />
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500" />
         <input
           type="text"
           placeholder="Search customers..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2 bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700 text-sm"
+          className="w-full sm:max-w-md pl-9 lg:pl-10 pr-3 lg:pr-4 py-1.5 lg:py-2 bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700 text-xs lg:text-sm"
         />
       </div>
 
       {/* Customers Table */}
       <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto -mx-4 lg:mx-0">
+          <table className="w-full min-w-[600px]">
             <thead className="border-b border-zinc-900">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Customer</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Contact</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Loyalty</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Points</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Total Spent</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Joined</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Customer</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden md:table-cell">Contact</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Tier</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden sm:table-cell">Points</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Spent</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden lg:table-cell">Joined</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-900">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-zinc-500 text-sm">
+                  <td colSpan={7} className="px-3 lg:px-6 py-6 lg:py-8 text-center text-zinc-500 text-xs lg:text-sm">
                     Loading customers...
                   </td>
                 </tr>
               ) : filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-zinc-500 text-sm">
+                  <td colSpan={7} className="px-3 lg:px-6 py-6 lg:py-8 text-center text-zinc-500 text-xs lg:text-sm">
                     No customers found
                   </td>
                 </tr>
               ) : (
                 filteredCustomers.map((customer) => (
                   <tr key={customer.id} className="hover:bg-zinc-900/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-                          <span className="text-sm font-light text-emerald-500">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4">
+                      <div className="flex items-center gap-2 lg:gap-3">
+                        <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center flex-shrink-0">
+                          <span className="text-xs lg:text-sm font-light text-slate-400">
                             {customer.first_name[0]}{customer.last_name[0]}
                           </span>
                         </div>
-                        <div>
-                          <p className="text-sm font-light text-white">
+                        <div className="min-w-0">
+                          <p className="text-xs lg:text-sm font-light text-white truncate">
                             {customer.first_name} {customer.last_name}
                           </p>
                           {customer.vendor_customer_number && (
-                            <p className="text-xs text-zinc-600">#{customer.vendor_customer_number}</p>
+                            <p className="text-[10px] lg:text-xs text-zinc-600">#{customer.vendor_customer_number}</p>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <p className="text-sm text-zinc-300 font-light">{customer.email || '-'}</p>
-                      <p className="text-sm text-zinc-500 font-light">{customer.phone || '-'}</p>
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 hidden md:table-cell">
+                      <p className="text-xs lg:text-sm text-zinc-300 font-light truncate max-w-[150px]">{customer.email || '-'}</p>
+                      <p className="text-xs lg:text-sm text-zinc-500 font-light">{customer.phone || '-'}</p>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-light capitalize ${getTierBadge(customer.loyalty_tier)}`}>
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4">
+                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light capitalize ${getTierBadge(customer.loyalty_tier)}`}>
                         {customer.loyalty_tier}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-300 font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-300 font-light hidden sm:table-cell">
                       {customer.loyalty_points.toLocaleString()}
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-300 font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-300 font-light">
                       {customer.order_count || 0}
                     </td>
-                    <td className="px-6 py-4 text-sm font-light text-white">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm font-light text-white">
                       {formatCurrency(customer.total_spent || 0)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-500 font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light hidden lg:table-cell whitespace-nowrap">
                       {format(new Date(customer.created_at), 'MMM d, yyyy')}
                     </td>
                   </tr>
@@ -462,27 +462,27 @@ export default function CustomersPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-zinc-900 flex items-center justify-between">
-            <p className="text-sm text-zinc-500 font-light">
-              Showing {page * pageSize + 1} to {Math.min((page + 1) * pageSize, totalCount)} of {totalCount} customers
+          <div className="px-3 lg:px-6 py-3 lg:py-4 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <p className="text-[10px] lg:text-sm text-zinc-500 font-light">
+              {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalCount)} of {totalCount}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 lg:gap-2">
               <button
                 onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
-                className="p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
+                className="p-1.5 lg:p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
               >
-                <ChevronLeft className="w-4 h-4 text-zinc-400" />
+                <ChevronLeft className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-400" />
               </button>
-              <span className="text-sm text-zinc-500 px-2">
-                {page + 1} / {totalPages}
+              <span className="text-xs lg:text-sm text-zinc-500 px-1 lg:px-2">
+                {page + 1}/{totalPages}
               </span>
               <button
                 onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page === totalPages - 1}
-                className="p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
+                className="p-1.5 lg:p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
               >
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
+                <ChevronRight className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-400" />
               </button>
             </div>
           </div>

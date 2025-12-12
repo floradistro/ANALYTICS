@@ -40,6 +40,13 @@ interface PaymentStats {
   successRate: number
 }
 
+export interface FilterState {
+  dateRange: { start: Date; end: Date }
+  locationIds: string[]
+  paymentMethods: string[]
+  orderTypes: string[]
+}
+
 interface DashboardState {
   metrics: DashboardMetrics | null
   recentOrders: Order[]
@@ -50,12 +57,25 @@ interface DashboardState {
   isLoading: boolean
   error: string | null
   dateRange: { start: Date; end: Date }
+  filters: FilterState
 
   setDateRange: (start: Date, end: Date) => void
+  setFilters: (filters: FilterState) => void
+  resetFilters: () => void
   fetchDashboardData: (vendorId: string) => Promise<void>
   fetchSalesData: (vendorId: string, days: number) => Promise<void>
   fetchTopProducts: (vendorId: string) => Promise<void>
   fetchPaymentStats: (vendorId: string) => Promise<void>
+}
+
+const defaultFilters: FilterState = {
+  dateRange: {
+    start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    end: new Date(),
+  },
+  locationIds: [],
+  paymentMethods: [],
+  orderTypes: [],
 }
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
@@ -71,8 +91,19 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     end: new Date(),
   },
+  filters: { ...defaultFilters },
 
-  setDateRange: (start, end) => set({ dateRange: { start, end } }),
+  setDateRange: (start, end) => set((state) => ({
+    dateRange: { start, end },
+    filters: { ...state.filters, dateRange: { start, end } },
+  })),
+
+  setFilters: (filters) => set({
+    filters,
+    dateRange: filters.dateRange,
+  }),
+
+  resetFilters: () => set({ filters: { ...defaultFilters } }),
 
   fetchDashboardData: async (vendorId: string) => {
     set({ isLoading: true, error: null })

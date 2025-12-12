@@ -6,11 +6,12 @@ import { useDashboardStore } from '@/stores/dashboard.store'
 import { supabase } from '@/lib/supabase'
 import { getDateRangeForQuery } from '@/lib/date-utils'
 import {
-  Users, Eye, MousePointer, Globe, Smartphone, Monitor, Laptop,
-  TrendingUp, TrendingDown, ShoppingCart, DollarSign, ArrowRight,
-  Chrome, Share2, Mail, Search, Link2, Zap, Clock, MapPin,
-  Activity, BarChart3, Target, Megaphone, RefreshCw, FileText
+  Users, Eye, Globe,
+  TrendingUp, ShoppingCart, DollarSign,
+  Target, RefreshCw
 } from 'lucide-react'
+import { ResponsiveBar } from '@nivo/bar'
+import { nivoTheme, colors } from '@/lib/theme'
 
 interface VisitorRecord {
   id: string
@@ -33,18 +34,10 @@ interface VisitorRecord {
 
 interface PageViewRecord {
   id: string
-  page_path: string | null
   page_url: string | null
   page_title: string | null
   session_id: string | null
   visitor_id: string | null
-  referrer: string | null
-  city: string | null
-  region: string | null
-  country: string | null
-  device_type: string | null
-  browser: string | null
-  os: string | null
   created_at: string
 }
 
@@ -101,10 +94,10 @@ export default function WebAnalyticsPage() {
         .lte('created_at', end)
         .order('created_at', { ascending: false })
 
-      // Fetch current period page views
+      // Fetch current period page views (only existing columns)
       const { data: pageViewData } = await supabase
         .from('page_views')
-        .select('*')
+        .select('id,page_url,page_title,session_id,visitor_id,created_at')
         .eq('vendor_id', vendorId)
         .gte('created_at', start)
         .lte('created_at', end)
@@ -145,8 +138,8 @@ export default function WebAnalyticsPage() {
       setVisitors(visitorData || [])
       setPageViews(pageViewData || [])
       setEvents(eventData || [])
-      setPrevVisitors(prevVisitorData || [])
-      setPrevPageViews(prevPageViewData || [])
+      setPrevVisitors(prevVisitorData as VisitorRecord[] || [])
+      setPrevPageViews(prevPageViewData as PageViewRecord[] || [])
       setRealtimeVisitors(realtimeData?.length || 0)
       setLastRefresh(new Date())
     } catch (err) {
@@ -186,9 +179,16 @@ export default function WebAnalyticsPage() {
   const bouncedSessions = Object.values(sessionPageCounts).filter(c => c === 1).length
   const bounceRate = totalSessions > 0 ? (bouncedSessions / totalSessions) * 100 : 0
 
-  // Top pages
+  // Top pages - derive path from page_url
   const pageStats = pageViews.reduce((acc, pv) => {
-    const path = pv.page_path || '/'
+    let path = '/'
+    if (pv.page_url) {
+      try {
+        path = new URL(pv.page_url).pathname
+      } catch {
+        path = '/'
+      }
+    }
     acc[path] = (acc[path] || 0) + 1
     return acc
   }, {} as Record<string, number>)
@@ -278,16 +278,49 @@ export default function WebAnalyticsPage() {
     }))
     .sort((a, b) => b.visitors - a.visitors)
 
-  // Daily trend for chart
-  const dailyStats = pageViews.reduce((acc, pv) => {
-    const date = new Date(pv.created_at).toISOString().split('T')[0]
-    acc[date] = (acc[date] || 0) + 1
+  // Hourly trend for chart (like Vercel)
+  const hourlyStats = pageViews.reduce((acc, pv) => {
+    const date = new Date(pv.created_at)
+    // Round down to the hour
+    const hourKey = new Date(date.getFullYear(), date.getMonth(), date.getDate(), date.getHours()).toISOString()
+    acc[hourKey] = (acc[hourKey] || 0) + 1
     return acc
   }, {} as Record<string, number>)
 
-  const dailyData = Object.entries(dailyStats)
-    .map(([date, views]) => ({ date, views }))
-    .sort((a, b) => a.date.localeCompare(b.date))
+  // Fill in missing hours for a continuous chart
+  const { startDate, endDate } = getDateRangeForQuery()
+  const hourlyData: { hour: string; views: number; [key: string]: string | number }[] = []
+
+  // For ranges > 7 days, show daily instead of hourly
+  const daysDiff = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))
+  const showHourly = daysDiff <= 7
+
+  if (showHourly) {
+    // Generate all hours in the range
+    const current = new Date(startDate)
+    current.setMinutes(0, 0, 0)
+    while (current <= endDate) {
+      const hourKey = current.toISOString()
+      hourlyData.push({
+        hour: hourKey,
+        views: hourlyStats[hourKey] || 0
+      })
+      current.setHours(current.getHours() + 1)
+    }
+  } else {
+    // Fall back to daily for longer ranges
+    const dailyStats = pageViews.reduce((acc, pv) => {
+      const date = new Date(pv.created_at).toISOString().split('T')[0]
+      acc[date] = (acc[date] || 0) + 1
+      return acc
+    }, {} as Record<string, number>)
+
+    Object.entries(dailyStats)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([date, views]) => {
+        hourlyData.push({ hour: date, views })
+      })
+  }
 
   // Conversion stats
   const productViews = events.filter(e => e.event_name === 'view_product').length
@@ -307,7 +340,7 @@ export default function WebAnalyticsPage() {
     const isPositive = value > 0
     return (
       <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium ${
-        isPositive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+        isPositive ? 'bg-slate-700/50 text-slate-300' : 'bg-zinc-700/50 text-zinc-400'
       }`}>
         {isPositive ? '+' : ''}{value.toFixed(0)}%
       </span>
@@ -318,7 +351,7 @@ export default function WebAnalyticsPage() {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <div className="w-8 h-8 border-2 border-slate-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
           <p className="text-zinc-500 text-sm">Loading analytics...</p>
         </div>
       </div>
@@ -330,11 +363,11 @@ export default function WebAnalyticsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-light text-white tracking-wide">Web Analytics</h1>
+          <h1 className="text-xl font-light text-zinc-100 tracking-wide">Web Analytics</h1>
           <div className="flex items-center gap-3 mt-1">
             <span className="text-zinc-500 text-sm">floradistro.com</span>
-            <span className="flex items-center gap-1.5 text-emerald-400 text-sm">
-              <span className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+            <span className="flex items-center gap-1.5 text-slate-400 text-sm">
+              <span className="w-2 h-2 bg-slate-400 rounded-full animate-pulse" />
               {realtimeVisitors} online
             </span>
           </div>
@@ -342,7 +375,7 @@ export default function WebAnalyticsPage() {
         <button
           onClick={fetchAnalytics}
           disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors text-xs"
+          className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-700 transition-colors text-xs rounded-sm"
         >
           <RefreshCw className={`w-3 h-3 ${isLoading ? 'animate-spin' : ''}`} />
           Refresh
@@ -375,78 +408,85 @@ export default function WebAnalyticsPage() {
         </div>
       </div>
 
-      {/* Traffic Chart */}
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
+      {/* Traffic Chart - Vercel Style Hourly Bar Chart */}
+      <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+        <h3 className="text-xs text-zinc-200 mb-4 tracking-wide uppercase">Page Views Over Time</h3>
         <div className="h-48">
-          {dailyData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-zinc-500">
+          {hourlyData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-zinc-600">
               No traffic data available yet
             </div>
           ) : (
-            <div className="h-full flex flex-col">
-              {/* Y-axis labels */}
-              <div className="flex-1 flex">
-                <div className="w-12 flex flex-col justify-between text-right pr-3 text-xs text-zinc-600">
-                  <span>{Math.max(...dailyData.map(d => d.views))}</span>
-                  <span>{Math.round(Math.max(...dailyData.map(d => d.views)) / 2)}</span>
-                  <span>0</span>
-                </div>
-                {/* Chart area */}
-                <div className="flex-1 relative">
-                  {/* Grid lines */}
-                  <div className="absolute inset-0 flex flex-col justify-between">
-                    <div className="border-t border-zinc-800/50" />
-                    <div className="border-t border-zinc-800/50" />
-                    <div className="border-t border-zinc-800/50" />
+            <ResponsiveBar
+              data={hourlyData}
+              keys={['views']}
+              indexBy="hour"
+              theme={nivoTheme}
+              margin={{ top: 10, right: 10, bottom: 30, left: 40 }}
+              padding={0.2}
+              colors={[colors.chart.seriesBlue[1]]}
+              borderRadius={2}
+              enableGridX={false}
+              enableGridY={true}
+              axisTop={null}
+              axisRight={null}
+              axisBottom={{
+                tickSize: 0,
+                tickPadding: 8,
+                tickRotation: 0,
+                format: (value) => {
+                  const date = new Date(String(value))
+                  if (showHourly) {
+                    // Show hour format for hourly view
+                    const hour = date.getHours()
+                    if (hour === 0) {
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    }
+                    return ''
+                  }
+                  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                },
+                tickValues: showHourly
+                  ? hourlyData.filter((_, i) => i % 24 === 0).map(d => d.hour)
+                  : undefined,
+              }}
+              axisLeft={{
+                tickSize: 0,
+                tickPadding: 8,
+                tickValues: 5,
+              }}
+              enableLabel={false}
+              tooltip={({ data, value }) => (
+                <div
+                  style={{
+                    background: colors.chart.tooltip.bg,
+                    border: `1px solid ${colors.chart.tooltip.border}`,
+                    borderRadius: '6px',
+                    padding: '12px 16px',
+                  }}
+                >
+                  <div className="text-xs text-zinc-500 mb-1">
+                    {showHourly
+                      ? new Date(String(data.hour)).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: 'numeric',
+                          minute: '2-digit'
+                        })
+                      : new Date(String(data.hour)).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric'
+                        })
+                    }
                   </div>
-                  {/* Line chart */}
-                  <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="rgb(45, 212, 191)" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="rgb(45, 212, 191)" stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                    {dailyData.length > 1 && (
-                      <>
-                        {/* Area fill */}
-                        <path
-                          d={`M 0 ${100} ${dailyData.map((d, i) => {
-                            const x = (i / (dailyData.length - 1)) * 100
-                            const maxViews = Math.max(...dailyData.map(d => d.views)) || 1
-                            const y = 100 - (d.views / maxViews) * 100
-                            return `L ${x} ${y}`
-                          }).join(' ')} L 100 100 Z`}
-                          fill="url(#chartGradient)"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                        {/* Line */}
-                        <path
-                          d={`M ${dailyData.map((d, i) => {
-                            const x = (i / (dailyData.length - 1)) * 100
-                            const maxViews = Math.max(...dailyData.map(d => d.views)) || 1
-                            const y = 100 - (d.views / maxViews) * 100
-                            return `${x} ${y}`
-                          }).join(' L ')}`}
-                          fill="none"
-                          stroke="rgb(45, 212, 191)"
-                          strokeWidth="2"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      </>
-                    )}
-                  </svg>
-                </div>
-              </div>
-              {/* X-axis labels */}
-              <div className="flex ml-12 mt-2">
-                {dailyData.filter((_, i) => i % Math.ceil(dailyData.length / 7) === 0).map((d) => (
-                  <div key={d.date} className="flex-1 text-xs text-zinc-600">
-                    {new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                  <div className="text-sm font-medium text-zinc-100">
+                    {value} page views
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
+              animate={true}
+              motionConfig="gentle"
+            />
           )}
         </div>
       </div>
@@ -469,7 +509,7 @@ export default function WebAnalyticsPage() {
               topPages.map((page) => (
                 <div key={page.page} className="flex items-center justify-between py-2 group">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <div className="h-1 bg-teal-500/30 flex-shrink-0" style={{
+                    <div className="h-1 bg-slate-500/40 flex-shrink-0" style={{
                       width: `${(page.views / topPages[0].views) * 60}%`,
                       minWidth: '4px'
                     }} />
@@ -583,35 +623,35 @@ export default function WebAnalyticsPage() {
       </div>
 
       {/* Conversion Metrics */}
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide flex items-center gap-2">
-          <Target className="w-4 h-4 text-teal-400" />
+      <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+        <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase flex items-center gap-2">
+          <Target className="w-4 h-4 text-slate-400" />
           E-commerce Conversion
         </h3>
         <div className="grid grid-cols-5 gap-4">
-          <div className="text-center p-4 bg-zinc-900/50 border border-zinc-800">
-            <Users className="w-5 h-5 text-zinc-400 mx-auto mb-2" />
+          <div className="text-center p-4 bg-zinc-900/50 border border-zinc-800 rounded-sm">
+            <Users className="w-5 h-5 text-zinc-500 mx-auto mb-2" />
             <p className="text-2xl font-light text-white">{totalVisitors}</p>
             <p className="text-xs text-zinc-500 mt-1">Visitors</p>
           </div>
-          <div className="text-center p-4 bg-blue-500/10 border border-blue-500/30">
-            <Eye className="w-5 h-5 text-blue-400 mx-auto mb-2" />
+          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
+            <Eye className="w-5 h-5 text-slate-400 mx-auto mb-2" />
             <p className="text-2xl font-light text-white">{productViews}</p>
             <p className="text-xs text-zinc-500 mt-1">Product Views</p>
           </div>
-          <div className="text-center p-4 bg-amber-500/10 border border-amber-500/30">
-            <ShoppingCart className="w-5 h-5 text-amber-400 mx-auto mb-2" />
+          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
+            <ShoppingCart className="w-5 h-5 text-slate-400 mx-auto mb-2" />
             <p className="text-2xl font-light text-white">{addToCarts}</p>
             <p className="text-xs text-zinc-500 mt-1">Add to Cart</p>
           </div>
-          <div className="text-center p-4 bg-emerald-500/10 border border-emerald-500/30">
-            <DollarSign className="w-5 h-5 text-emerald-400 mx-auto mb-2" />
-            <p className="text-2xl font-light text-emerald-400">{purchases.length}</p>
+          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
+            <DollarSign className="w-5 h-5 text-slate-300 mx-auto mb-2" />
+            <p className="text-2xl font-light text-slate-200">{purchases.length}</p>
             <p className="text-xs text-zinc-500 mt-1">Purchases</p>
           </div>
-          <div className="text-center p-4 bg-emerald-500/10 border border-emerald-500/30">
-            <TrendingUp className="w-5 h-5 text-emerald-400 mx-auto mb-2" />
-            <p className="text-2xl font-light text-emerald-400">{formatCurrency(totalRevenue)}</p>
+          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
+            <TrendingUp className="w-5 h-5 text-slate-300 mx-auto mb-2" />
+            <p className="text-2xl font-light text-slate-200">{formatCurrency(totalRevenue)}</p>
             <p className="text-xs text-zinc-500 mt-1">Revenue</p>
           </div>
         </div>

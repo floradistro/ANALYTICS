@@ -35,7 +35,7 @@ export default function LoginPage() {
         <div className="text-center mb-12">
           <div className="flex justify-center mb-6">
             <div className="w-16 h-16 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-              <span className="text-emerald-500 font-bold text-2xl">W</span>
+              <span className="text-slate-300 font-bold text-2xl">W</span>
             </div>
           </div>
           <h2 className="text-2xl font-light text-white tracking-wide">
@@ -48,7 +48,7 @@ export default function LoginPage() {
 
         <form className="space-y-6" onSubmit={handleSubmit}>
           {error && (
-            <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 text-sm font-light">
+            <div className="bg-zinc-900/50 border border-zinc-700 text-zinc-400 px-4 py-3 text-sm font-light">
               {error}
             </div>
           )}

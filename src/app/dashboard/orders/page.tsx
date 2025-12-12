@@ -15,7 +15,7 @@ import {
   Eye,
   X,
 } from 'lucide-react'
-import { FilterBar, useFilters } from '@/components/filters/FilterBar'
+import { FilterBar } from '@/components/filters/FilterBar'
 
 interface OrderWithCustomer extends Order {
   customers?: {
@@ -29,8 +29,7 @@ type OrderStatus = 'all' | 'pending' | 'shipped' | 'delivered' | 'cancelled'
 
 export default function OrdersPage() {
   const { vendorId } = useAuthStore()
-  const { dateRange } = useDashboardStore()
-  const { filters, setFilters } = useFilters()
+  const { dateRange, filters } = useDashboardStore()
   const [orders, setOrders] = useState<OrderWithCustomer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -68,11 +67,7 @@ export default function OrdersPage() {
       }
 
       if (filters.paymentMethods.length > 0) {
-        query = query.in('payment_status', filters.paymentMethods.map(m => {
-          // Map payment methods to payment status values
-          if (m === 'credit_card' || m === 'debit_card' || m === 'cash') return 'paid'
-          return m
-        }))
+        query = query.in('payment_method', filters.paymentMethods)
       }
 
       if (filters.orderTypes.length > 0) {
@@ -88,12 +83,15 @@ export default function OrdersPage() {
 
       const { data, error, count } = await query
 
-      if (error) throw error
+      if (error) {
+        console.error('Supabase orders error:', error.message, error.code, error.details)
+        throw error
+      }
 
       setOrders(data || [])
       setTotalCount(count || 0)
-    } catch (error) {
-      console.error('Failed to fetch orders:', error)
+    } catch (error: any) {
+      console.error('Failed to fetch orders:', error?.message || error)
     } finally {
       setLoading(false)
     }
@@ -152,61 +150,55 @@ export default function OrdersPage() {
 
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
-      pending: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-      shipped: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
-      delivered: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-      cancelled: 'bg-red-500/10 text-red-400 border border-red-500/20',
+      pending: 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/30',
+      shipped: 'bg-slate-700/30 text-slate-300 border border-slate-600/30',
+      delivered: 'bg-slate-700/40 text-slate-200 border border-slate-600/40',
+      cancelled: 'bg-zinc-900/50 text-zinc-500 border border-zinc-800/30',
     }
     return styles[status] || 'bg-zinc-800 text-zinc-400 border border-zinc-700'
   }
 
   const getPaymentBadge = (status: string) => {
     const styles: Record<string, string> = {
-      paid: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-      pending: 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-      failed: 'bg-red-500/10 text-red-400 border border-red-500/20',
-      refunded: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+      paid: 'bg-slate-700/30 text-slate-300 border border-slate-600/30',
+      pending: 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/30',
+      failed: 'bg-zinc-900/50 text-zinc-500 border border-zinc-800/30',
+      refunded: 'bg-zinc-800/30 text-zinc-400 border border-zinc-700/30',
     }
     return styles[status] || 'bg-zinc-800 text-zinc-400 border border-zinc-700'
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-light text-white tracking-wide">Orders</h1>
-          <p className="text-zinc-500 text-sm font-light mt-1">Manage and track all orders</p>
+          <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Orders</h1>
+          <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">Manage and track all orders</p>
         </div>
         <button
           onClick={exportOrders}
-          className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm font-light"
+          className="flex items-center gap-2 px-3 lg:px-4 py-1.5 lg:py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-xs lg:text-sm font-light self-start sm:self-auto"
         >
-          <Download className="w-4 h-4" />
-          Export CSV
+          <Download className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
+          Export
         </button>
       </div>
 
       {/* Filters */}
-      <div className="space-y-4">
+      <div className="space-y-3 lg:space-y-4">
         <FilterBar
-          filters={filters}
-          onChange={(newFilters) => {
-            setFilters(newFilters)
-            setPage(0)
-          }}
-          showDateFilter={false}
           showPaymentFilter={true}
         />
 
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 max-w-md">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-zinc-500" />
+        <div className="flex flex-col sm:flex-row gap-2 lg:gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500" />
             <input
               type="text"
               placeholder="Search orders..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700 text-sm"
+              className="w-full pl-9 lg:pl-10 pr-3 lg:pr-4 py-1.5 lg:py-2 bg-zinc-950 border border-zinc-800 text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-700 text-xs lg:text-sm"
             />
           </div>
 
@@ -216,7 +208,7 @@ export default function OrdersPage() {
               setStatusFilter(e.target.value as OrderStatus)
               setPage(0)
             }}
-            className="px-3 py-2 bg-zinc-950 border border-zinc-800 text-zinc-300 focus:outline-none focus:border-zinc-700 text-sm"
+            className="px-2.5 lg:px-3 py-1.5 lg:py-2 bg-zinc-950 border border-zinc-800 text-zinc-300 focus:outline-none focus:border-zinc-700 text-xs lg:text-sm"
           >
             <option value="all">All Status</option>
             <option value="pending">Pending</option>
@@ -229,69 +221,69 @@ export default function OrdersPage() {
 
       {/* Orders Table */}
       <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
+        <div className="overflow-x-auto -mx-4 lg:mx-0">
+          <table className="w-full min-w-[700px]">
             <thead className="border-b border-zinc-900">
               <tr>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Order</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Customer</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Payment</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Total</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-4 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Actions</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Order</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden sm:table-cell">Customer</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Type</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Status</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden md:table-cell">Payment</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Total</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider hidden lg:table-cell">Date</th>
+                <th className="px-3 lg:px-6 py-2 lg:py-4 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">View</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-900">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500 text-sm">
+                  <td colSpan={8} className="px-3 lg:px-6 py-6 lg:py-8 text-center text-zinc-500 text-xs lg:text-sm">
                     Loading orders...
                   </td>
                 </tr>
               ) : filteredOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-8 text-center text-zinc-500 text-sm">
+                  <td colSpan={8} className="px-3 lg:px-6 py-6 lg:py-8 text-center text-zinc-500 text-xs lg:text-sm">
                     No orders found
                   </td>
                 </tr>
               ) : (
                 filteredOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-zinc-900/50 transition-colors">
-                    <td className="px-6 py-4 text-sm font-light text-white">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm font-light text-white">
                       {order.order_number}
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-400 font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-400 font-light hidden sm:table-cell">
                       {order.customers
                         ? `${order.customers.first_name} ${order.customers.last_name}`
                         : 'Guest'}
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-400 capitalize font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-400 capitalize font-light">
                       {order.order_type.replace('_', ' ')}
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-light ${getStatusBadge(order.status)}`}>
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4">
+                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light ${getStatusBadge(order.status)}`}>
                         {order.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-light ${getPaymentBadge(order.payment_status)}`}>
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 hidden md:table-cell">
+                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light ${getPaymentBadge(order.payment_status)}`}>
                         {order.payment_status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-sm font-light text-white">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm font-light text-white">
                       {formatCurrency(order.total_amount)}
                     </td>
-                    <td className="px-6 py-4 text-sm text-zinc-500 font-light">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light hidden lg:table-cell whitespace-nowrap">
                       {format(new Date(order.created_at), 'MMM d, h:mm a')}
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-3 lg:px-6 py-2.5 lg:py-4">
                       <button
                         onClick={() => setSelectedOrder(order)}
-                        className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
+                        className="p-1.5 lg:p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 transition-colors"
                       >
-                        <Eye className="w-4 h-4" />
+                        <Eye className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
                       </button>
                     </td>
                   </tr>
@@ -303,27 +295,27 @@ export default function OrdersPage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-zinc-900 flex items-center justify-between">
-            <p className="text-sm text-zinc-500 font-light">
-              Showing {page * pageSize + 1} to {Math.min((page + 1) * pageSize, totalCount)} of {totalCount} orders
+          <div className="px-3 lg:px-6 py-3 lg:py-4 border-t border-zinc-900 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <p className="text-[10px] lg:text-sm text-zinc-500 font-light">
+              {page * pageSize + 1}-{Math.min((page + 1) * pageSize, totalCount)} of {totalCount}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 lg:gap-2">
               <button
                 onClick={() => setPage(Math.max(0, page - 1))}
                 disabled={page === 0}
-                className="p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
+                className="p-1.5 lg:p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
               >
-                <ChevronLeft className="w-4 h-4 text-zinc-400" />
+                <ChevronLeft className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-400" />
               </button>
-              <span className="text-sm text-zinc-500 px-2">
-                {page + 1} / {totalPages}
+              <span className="text-xs lg:text-sm text-zinc-500 px-1 lg:px-2">
+                {page + 1}/{totalPages}
               </span>
               <button
                 onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
                 disabled={page === totalPages - 1}
-                className="p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
+                className="p-1.5 lg:p-2 border border-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed hover:bg-zinc-900 transition-colors"
               >
-                <ChevronRight className="w-4 h-4 text-zinc-400" />
+                <ChevronRight className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-400" />
               </button>
             </div>
           </div>
@@ -391,7 +383,7 @@ export default function OrdersPage() {
                     {selectedOrder.shipping_city}, {selectedOrder.shipping_state} {selectedOrder.shipping_postal_code}
                   </p>
                   {selectedOrder.tracking_number && (
-                    <p className="text-sm text-emerald-400 font-light mt-1">Tracking: {selectedOrder.tracking_number}</p>
+                    <p className="text-sm text-slate-300 font-light mt-1">Tracking: {selectedOrder.tracking_number}</p>
                   )}
                 </div>
               )}
@@ -410,7 +402,7 @@ export default function OrdersPage() {
                 {selectedOrder.discount_amount > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-zinc-500 font-light">Discount</span>
-                    <span className="text-emerald-400 font-light">-{formatCurrency(selectedOrder.discount_amount)}</span>
+                    <span className="text-slate-400 font-light">-{formatCurrency(selectedOrder.discount_amount)}</span>
                   </div>
                 )}
                 <div className="flex justify-between text-lg pt-2 border-t border-zinc-900">

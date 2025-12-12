@@ -399,7 +399,7 @@ export default function ShipmentsPage() {
           {/* Live indicator */}
           <span className={`flex items-center gap-2 px-3 py-2 text-xs border ${
             isLive
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+              ? 'bg-slate-700/30 border-slate-600/30 text-slate-300'
               : 'bg-zinc-900 border-zinc-800 text-zinc-500'
           }`}>
             {isLive ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
@@ -421,7 +421,7 @@ export default function ShipmentsPage() {
           <button
             onClick={() => registerUnregisteredTrackers()}
             disabled={isRefreshing}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 border border-blue-500 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-3 py-2 text-sm bg-slate-600 border border-slate-500 text-white hover:bg-slate-500 disabled:opacity-50 transition-colors"
           >
             {isRefreshing ? (
               <>
@@ -446,14 +446,14 @@ export default function ShipmentsPage() {
 
       {/* Error Banner */}
       {error && (
-        <div className="bg-red-500/10 border border-red-500/30 px-4 py-3 flex items-center justify-between">
+        <div className="bg-zinc-900/50 border border-zinc-700 px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-400" />
-            <span className="text-sm text-red-400">{error}</span>
+            <AlertTriangle className="w-5 h-5 text-zinc-400" />
+            <span className="text-sm text-zinc-400">{error}</span>
           </div>
           <button
             onClick={() => setError(null)}
-            className="text-red-400 hover:text-red-300 text-xl"
+            className="text-zinc-400 hover:text-red-300 text-xl"
           >
             &times;
           </button>
@@ -480,18 +480,18 @@ export default function ShipmentsPage() {
 
         <div className="bg-zinc-950 border border-zinc-900 p-4">
           <div className="flex items-center gap-2">
-            <Truck className="w-5 h-5 text-blue-400" />
+            <Truck className="w-5 h-5 text-slate-300" />
             <span className="text-xs text-zinc-500 uppercase tracking-wider">In Transit</span>
           </div>
-          <p className="text-2xl font-light text-blue-400 mt-2">{stats.inTransit}</p>
+          <p className="text-2xl font-light text-slate-300 mt-2">{stats.inTransit}</p>
         </div>
 
         <div className="bg-zinc-950 border border-zinc-900 p-4">
           <div className="flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-emerald-400" />
+            <CheckCircle className="w-5 h-5 text-slate-300" />
             <span className="text-xs text-zinc-500 uppercase tracking-wider">Delivered</span>
           </div>
-          <p className="text-2xl font-light text-emerald-400 mt-2">{stats.delivered}</p>
+          <p className="text-2xl font-light text-slate-300 mt-2">{stats.delivered}</p>
         </div>
 
         <div className="bg-zinc-950 border border-zinc-900 p-4">
@@ -504,10 +504,10 @@ export default function ShipmentsPage() {
 
         <div className="bg-zinc-950 border border-zinc-900 p-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-red-400" />
+            <AlertTriangle className="w-5 h-5 text-zinc-400" />
             <span className="text-xs text-zinc-500 uppercase tracking-wider">Alerts</span>
           </div>
-          <p className="text-2xl font-light text-red-400 mt-2">{stats.alerts}</p>
+          <p className="text-2xl font-light text-zinc-400 mt-2">{stats.alerts}</p>
         </div>
       </div>
 
@@ -620,7 +620,7 @@ export default function ShipmentsPage() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                          className="text-sm text-slate-300 hover:text-blue-300 flex items-center gap-1"
                         >
                           {shipment.tracking_number}
                           <ExternalLink className="w-3 h-3" />
@@ -655,7 +655,7 @@ export default function ShipmentsPage() {
                             registerSingleTracker(shipment.tracking_number!)
                           }}
                           disabled={shipment.isRegistering}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-blue-500/10 border border-blue-500/30 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-blue-500/10 border border-blue-500/30 text-slate-300 hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
                         >
                           {shipment.isRegistering ? (
                             <>
@@ -795,7 +795,7 @@ export default function ShipmentsPage() {
                           <div className="flex flex-col items-center">
                             <div
                               className={`w-3 h-3 rounded-full ${
-                                index === 0 ? 'bg-emerald-500' : 'bg-zinc-700'
+                                index === 0 ? 'bg-slate-400' : 'bg-zinc-700'
                               }`}
                             />
                             {index < selectedShipment.trackingData!.events.length - 1 && (

@@ -8,7 +8,7 @@ import { MetricCard } from '@/components/ui/MetricCard'
 import { SalesChart } from '@/components/charts/SalesChart'
 import { OrderTypePieChart } from '@/components/charts/OrderTypePieChart'
 import { TopProductsChart } from '@/components/charts/TopProductsChart'
-import { FilterBar, useFilters } from '@/components/filters/FilterBar'
+import { FilterBar } from '@/components/filters/FilterBar'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { getDateRangeForQuery, generateDateRange } from '@/lib/date-utils'
@@ -17,6 +17,7 @@ interface DashboardMetrics {
   // Cash Flow (all paid orders - money in the bank)
   cashCollected: number
   grossSales: number
+  netRevenue: number
   totalDiscounts: number
   totalTax: number
   paidOrders: number
@@ -65,8 +66,7 @@ interface Order {
 
 export default function DashboardOverview() {
   const { vendorId } = useAuthStore()
-  const { dateRange } = useDashboardStore()
-  const { filters, setFilters } = useFilters()
+  const { dateRange, filters } = useDashboardStore()
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [salesData, setSalesData] = useState<SalesData[]>([])
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
@@ -96,7 +96,7 @@ export default function DashboardOverview() {
       while (hasMore) {
         let query = supabase
           .from('orders')
-          .select('id, order_type, status, payment_status, total_amount, subtotal, tax_amount, discount_amount, metadata, created_at')
+          .select('id, order_type, status, payment_status, total_amount, subtotal, tax_amount, discount_amount, affiliate_discount_amount, metadata, created_at')
           .eq('vendor_id', vendorId)
           .gte('created_at', startDate)
           .lte('created_at', endDate)
@@ -257,13 +257,24 @@ export default function DashboardOverview() {
         ? ((customersInPeriod - customersInPrevPeriod) / customersInPrevPeriod) * 100
         : 0
 
-      // Order type breakdown (all paid orders)
+      // Helper: Calculate net revenue (subtotal - discounts)
+      const calcNetRevenue = (order: any): number => {
+        const subtotal = parseFloat(order.subtotal || 0)
+        const discounts =
+          parseFloat(order.discount_amount || 0) +
+          parseFloat(order.affiliate_discount_amount || 0) +
+          parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+          parseFloat(order.metadata?.campaign_discount_amount || 0)
+        return subtotal - discounts
+      }
+
+      // Order type breakdown (all paid orders) - using Net Revenue
       const orderTypeMap = new Map<string, { count: number; revenue: number }>()
       paidOrders?.forEach((order) => {
         const existing = orderTypeMap.get(order.order_type) || { count: 0, revenue: 0 }
         orderTypeMap.set(order.order_type, {
           count: existing.count + 1,
-          revenue: existing.revenue + (order.total_amount || 0),
+          revenue: existing.revenue + calcNetRevenue(order),
         })
       })
 
@@ -272,10 +283,14 @@ export default function DashboardOverview() {
         ...data,
       }))
 
+      // Net Revenue = Gross Sales - All Discounts
+      const netRevenue = grossSales - totalDiscounts
+
       setMetrics({
         // Cash metrics
         cashCollected,
         grossSales,
+        netRevenue,
         totalDiscounts,
         totalTax,
         paidOrders: paidOrderCount,
@@ -286,7 +301,7 @@ export default function DashboardOverview() {
         deferredOrders: deferredOrderCount,
         // Other
         totalCustomers,
-        averageOrderValue: paidOrderCount > 0 ? cashCollected / paidOrderCount : 0,
+        averageOrderValue: paidOrderCount > 0 ? netRevenue / paidOrderCount : 0,
         revenueGrowth,
         ordersGrowth,
         customersGrowth,
@@ -299,6 +314,17 @@ export default function DashboardOverview() {
       setIsLoading(false)
     }
   }, [vendorId, dateRange, filters])
+
+  // Helper: Calculate net revenue (subtotal - discounts) - consistent across all pages
+  const getNetRevenue = (order: any): number => {
+    const subtotal = parseFloat(order.subtotal || 0)
+    const discounts =
+      parseFloat(order.discount_amount || 0) +
+      parseFloat(order.affiliate_discount_amount || 0) +
+      parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+      parseFloat(order.metadata?.campaign_discount_amount || 0)
+    return subtotal - discounts
+  }
 
   const fetchSalesData = useCallback(async () => {
     if (!vendorId) return
@@ -316,7 +342,7 @@ export default function DashboardOverview() {
       while (hasMore) {
         let query = supabase
           .from('orders')
-          .select('created_at, total_amount, status, payment_status')
+          .select('created_at, subtotal, discount_amount, affiliate_discount_amount, metadata, status, payment_status')
           .eq('vendor_id', vendorId)
           .gte('created_at', start)
           .lte('created_at', end)
@@ -343,9 +369,9 @@ export default function DashboardOverview() {
         page++
       }
 
-      // Filter for recognized revenue only (ASC 606)
+      // Filter for all paid orders (cash collected) - consistent with Sales Analytics
       const orders = allOrders.filter(
-        (o) => o.payment_status === 'paid' && (o.status === 'completed' || o.status === 'delivered')
+        (o) => o.payment_status === 'paid' && o.status !== 'cancelled'
       )
 
       // Initialize all dates in range for consistent charts
@@ -360,7 +386,7 @@ export default function DashboardOverview() {
         const date = new Date(order.created_at).toISOString().split('T')[0]
         const existing = salesByDate.get(date) || { revenue: 0, orders: 0 }
         salesByDate.set(date, {
-          revenue: existing.revenue + (order.total_amount || 0),
+          revenue: existing.revenue + getNetRevenue(order),
           orders: existing.orders + 1,
         })
       })
@@ -427,21 +453,27 @@ export default function DashboardOverview() {
         return
       }
 
-      const chunkSize = 50
+      // Use larger chunks and parallel fetching for speed
+      const chunkSize = 200
       const chunks: string[][] = []
       for (let i = 0; i < orderIds.length; i += chunkSize) {
         chunks.push(orderIds.slice(i, i + chunkSize))
       }
 
-      const allOrderItems: any[] = []
-      for (const chunk of chunks) {
-        const { data: orderItems, error: itemsError } = await supabase
-          .from('order_items')
-          .select('product_id, product_name, quantity, unit_price')
-          .in('order_id', chunk)
+      // Fetch all chunks in parallel
+      const chunkResults = await Promise.all(
+        chunks.map(chunk =>
+          supabase
+            .from('order_items')
+            .select('product_id, product_name, quantity, unit_price')
+            .in('order_id', chunk)
+        )
+      )
 
-        if (itemsError) throw itemsError
-        if (orderItems) allOrderItems.push(...orderItems)
+      const allOrderItems: any[] = []
+      for (const { data, error } of chunkResults) {
+        if (error) throw error
+        if (data) allOrderItems.push(...data)
       }
 
       const productMap = new Map<string, { name: string; totalSold: number; revenue: number }>()
@@ -484,34 +516,31 @@ export default function DashboardOverview() {
     }).format(value)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 lg:space-y-6">
       <div>
-        <h1 className="text-xl font-light text-white tracking-wide">Dashboard Overview</h1>
-        <p className="text-zinc-500 text-sm font-light mt-1">Welcome back. Here's what's happening with your store.</p>
+        <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Dashboard Overview</h1>
+        <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">Welcome back. Here's what's happening with your store.</p>
       </div>
 
       {/* Filters */}
       <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        showDateFilter={false}
         showPaymentFilter={false}
       />
 
       {/* CASH FLOW SECTION - Money in the bank */}
-      <div className="bg-zinc-950 border border-zinc-900 p-4">
-        <h2 className="text-xs font-light text-zinc-500 uppercase tracking-wider mb-4">Cash Flow (All Paid Orders)</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          <MetricCard
-            title="Cash Collected"
-            value={metrics?.cashCollected || 0}
-            icon={DollarSign}
-            format="currency"
-          />
+      <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-4">
+        <h2 className="text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider mb-3 lg:mb-4">Cash Flow (All Paid Orders)</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 lg:gap-4">
           <MetricCard
             title="Gross Sales"
             value={metrics?.grossSales || 0}
             icon={TrendingUp}
+            format="currency"
+          />
+          <MetricCard
+            title="Net Revenue"
+            value={metrics?.netRevenue || 0}
+            icon={DollarSign}
             format="currency"
           />
           <MetricCard
@@ -527,6 +556,12 @@ export default function DashboardOverview() {
             format="currency"
           />
           <MetricCard
+            title="Cash Collected"
+            value={metrics?.cashCollected || 0}
+            icon={DollarSign}
+            format="currency"
+          />
+          <MetricCard
             title="Paid Orders"
             value={metrics?.paidOrders || 0}
             change={metrics?.ordersGrowth}
@@ -536,9 +571,9 @@ export default function DashboardOverview() {
       </div>
 
       {/* REVENUE RECOGNITION - ASC 606 P&L */}
-      <div className="bg-zinc-950 border border-zinc-900 p-4">
-        <h2 className="text-xs font-light text-zinc-500 uppercase tracking-wider mb-4">Revenue Recognition (ASC 606)</h2>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-4">
+        <h2 className="text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider mb-3 lg:mb-4">Revenue Recognition (ASC 606)</h2>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-4">
           <MetricCard
             title="Recognized Revenue"
             value={metrics?.recognizedRevenue || 0}
@@ -564,15 +599,15 @@ export default function DashboardOverview() {
           />
         </div>
         {(metrics?.deferredOrders || 0) > 0 && (
-          <div className="mt-4 bg-amber-500/10 border border-amber-500/20 p-3 text-amber-400 text-xs font-light">
-            <Clock className="inline w-3 h-3 mr-2" />
-            {metrics?.deferredOrders} orders in transit — {formatCurrency(metrics?.deferredRevenue || 0)} will be recognized upon delivery
+          <div className="mt-3 lg:mt-4 bg-slate-800/30 border border-slate-700/30 p-2 lg:p-3 text-slate-300 text-[10px] lg:text-xs font-light">
+            <Clock className="inline w-3 h-3 mr-1 lg:mr-2" />
+            {metrics?.deferredOrders} orders in transit — {formatCurrency(metrics?.deferredRevenue || 0)} recognized upon delivery
           </div>
         )}
       </div>
 
       {/* OTHER METRICS */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-4">
         <MetricCard
           title="Total Customers"
           value={metrics?.totalCustomers || 0}
@@ -594,7 +629,7 @@ export default function DashboardOverview() {
       </div>
 
       {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
         <SalesChart data={salesData} metric="revenue" />
         <OrderTypePieChart data={orderTypeBreakdown} />
       </div>
@@ -603,52 +638,52 @@ export default function DashboardOverview() {
       <TopProductsChart data={topProducts} />
 
       {/* Recent Orders */}
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide">Recent Orders</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
+      <div className="bg-zinc-950 border border-zinc-900 p-4 lg:p-6">
+        <h3 className="text-xs lg:text-sm font-light text-white mb-4 lg:mb-6 tracking-wide">Recent Orders</h3>
+        <div className="overflow-x-auto -mx-4 lg:mx-0">
+          <table className="w-full min-w-[500px]">
             <thead className="border-b border-zinc-900">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Order #</th>
-                <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Date</th>
+                <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Order #</th>
+                <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Type</th>
+                <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Status</th>
+                <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Amount</th>
+                <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-900">
               {recentOrders.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-zinc-500 text-sm">
+                  <td colSpan={5} className="px-3 lg:px-4 py-6 lg:py-8 text-center text-zinc-500 text-xs lg:text-sm">
                     No recent orders
                   </td>
                 </tr>
               ) : (
                 recentOrders.map((order) => (
                   <tr key={order.id} className="hover:bg-zinc-900/50 transition-colors">
-                    <td className="px-4 py-4 text-sm font-light text-white">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm font-light text-white">
                       {order.order_number}
                     </td>
-                    <td className="px-4 py-4 text-sm text-zinc-400 capitalize font-light">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-400 capitalize font-light">
                       {order.order_type.replace('_', ' ')}
                     </td>
-                    <td className="px-4 py-4">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4">
                       <span
-                        className={`inline-flex px-2 py-1 text-xs font-light ${
+                        className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light ${
                           order.payment_status === 'paid'
-                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                            ? 'bg-slate-700/30 text-slate-300 border border-slate-600/30'
                             : order.payment_status === 'pending'
-                            ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20'
-                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                            ? 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/30'
+                            : 'bg-zinc-900/50 text-zinc-500 border border-zinc-800/30'
                         }`}
                       >
                         {order.payment_status}
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-sm text-white font-light">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-white font-light">
                       {formatCurrency(order.total_amount)}
                     </td>
-                    <td className="px-4 py-4 text-sm text-zinc-500 font-light">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light whitespace-nowrap">
                       {format(new Date(order.created_at), 'MMM d, h:mm a')}
                     </td>
                   </tr>

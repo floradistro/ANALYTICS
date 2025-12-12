@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts'
+import { ResponsivePie } from '@nivo/pie'
+import { nivoTheme, colors, chartSeriesBlueColors, formatCurrency } from '@/lib/theme'
 
 interface OrderTypeData {
   type: string
@@ -13,8 +13,6 @@ interface OrderTypePieChartProps {
   data: OrderTypeData[]
 }
 
-const COLORS = ['#10b981', '#0071e3', '#f59e0b', '#ef4444', '#8b5cf6']
-
 const TYPE_LABELS: Record<string, string> = {
   walk_in: 'Walk-in',
   pickup: 'Pickup',
@@ -23,44 +21,21 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 export function OrderTypePieChart({ data }: OrderTypePieChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) {
-        const { width, height } = entry.contentRect
-        if (width > 0 && height > 0) {
-          setDimensions({ width, height })
-        }
-      }
-    })
-
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
-
-  const chartData = data.map((item) => ({
-    ...item,
-    name: TYPE_LABELS[item.type] || item.type,
+  const chartData = data.map((item, index) => ({
+    id: TYPE_LABELS[item.type] || item.type,
+    label: TYPE_LABELS[item.type] || item.type,
+    value: item.count,
+    revenue: item.revenue,
+    color: colors.chart.seriesBlue[index % colors.chart.seriesBlue.length],
   }))
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-    }).format(value)
 
   if (data.length === 0) {
     return (
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide">Orders by Type</h3>
-        <div className="h-[300px] flex items-center justify-center text-zinc-500 text-sm">
+      <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+        <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase">
+          Orders by Type
+        </h3>
+        <div className="h-[300px] flex items-center justify-center text-zinc-600 text-sm">
           No order data available
         </div>
       </div>
@@ -68,46 +43,56 @@ export function OrderTypePieChart({ data }: OrderTypePieChartProps) {
   }
 
   return (
-    <div className="bg-zinc-950 border border-zinc-900 p-6">
-      <h3 className="text-sm font-light text-white mb-6 tracking-wide">Orders by Type</h3>
-      <div ref={containerRef} className="h-[300px] min-h-[300px]">
-        {dimensions.width > 0 && dimensions.height > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={chartData}
-                cx="50%"
-                cy="50%"
-                innerRadius={60}
-                outerRadius={100}
-                paddingAngle={2}
-                dataKey="count"
-                label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                labelLine={{ stroke: '#52525b' }}
-              >
-                {chartData.map((_, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(value: number, name: string, props) => [
-                  `${value} orders (${formatCurrency(props.payload.revenue)})`,
-                  props.payload.name,
-                ]}
-                contentStyle={{
-                  backgroundColor: '#18181b',
-                  border: '1px solid #27272a',
-                  borderRadius: '0',
-                  color: '#f5f5f7',
-                }}
-              />
-              <Legend
-                wrapperStyle={{ color: '#71717a', fontSize: '12px' }}
-                formatter={(value) => <span style={{ color: '#a1a1aa' }}>{value}</span>}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        )}
+    <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+      <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase">
+        Orders by Type
+      </h3>
+      <div className="h-[300px]">
+        <ResponsivePie
+          data={chartData}
+          theme={nivoTheme}
+          margin={{ top: 20, right: 80, bottom: 40, left: 80 }}
+          innerRadius={0.6}
+          padAngle={1}
+          cornerRadius={4}
+          activeOuterRadiusOffset={8}
+          colors={chartSeriesBlueColors}
+          borderWidth={0}
+          enableArcLinkLabels={true}
+          arcLinkLabelsSkipAngle={10}
+          arcLinkLabelsTextColor={colors.text.secondary}
+          arcLinkLabelsThickness={1}
+          arcLinkLabelsColor={{ from: 'color', modifiers: [['darker', 0.5]] }}
+          arcLinkLabelsDiagonalLength={12}
+          arcLinkLabelsStraightLength={12}
+          enableArcLabels={false}
+          tooltip={({ datum }) => (
+            <div
+              style={{
+                background: colors.chart.tooltip.bg,
+                border: `1px solid ${colors.chart.tooltip.border}`,
+                borderRadius: '6px',
+                padding: '12px 16px',
+              }}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ background: datum.color }}
+                />
+                <span className="text-xs text-zinc-400">{datum.label}</span>
+              </div>
+              <div className="text-sm font-medium text-zinc-100">
+                {datum.value} orders
+              </div>
+              <div className="text-xs text-zinc-500">
+                {formatCurrency(datum.data.revenue as number)} revenue
+              </div>
+            </div>
+          )}
+          animate={true}
+          motionConfig="gentle"
+        />
       </div>
     </div>
   )

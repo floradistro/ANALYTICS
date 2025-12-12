@@ -98,8 +98,8 @@ export default function SettingsPage() {
         <div
           className={`px-4 py-3 text-sm font-light ${
             message.type === 'success'
-              ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-              : 'bg-red-500/10 text-red-400 border border-red-500/20'
+              ? 'bg-slate-700/30 text-slate-300 border border-slate-600/30'
+              : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/30'
           }`}
         >
           {message.text}
@@ -110,7 +110,7 @@ export default function SettingsPage() {
       <div className="bg-zinc-950 border border-zinc-900 p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Store className="w-5 h-5 text-emerald-500" />
+            <Store className="w-5 h-5 text-slate-400" />
           </div>
           <div>
             <h2 className="text-sm font-light text-white tracking-wide">Store Information</h2>
@@ -168,7 +168,7 @@ export default function SettingsPage() {
               id="free_shipping"
               checked={formData.free_shipping_enabled}
               onChange={(e) => setFormData({ ...formData, free_shipping_enabled: e.target.checked })}
-              className="w-4 h-4 bg-zinc-900 border-zinc-700 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-zinc-900"
+              className="w-4 h-4 bg-zinc-900 border-zinc-700 text-slate-400 focus:ring-emerald-500 focus:ring-offset-0 focus:ring-offset-zinc-900"
             />
             <label htmlFor="free_shipping" className="text-sm font-light text-zinc-300">
               Enable free shipping threshold
@@ -199,7 +199,7 @@ export default function SettingsPage() {
       <div className="bg-zinc-950 border border-zinc-900 p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <MapPin className="w-5 h-5 text-emerald-500" />
+            <MapPin className="w-5 h-5 text-slate-400" />
           </div>
           <div>
             <h2 className="text-sm font-light text-white tracking-wide">Locations</h2>
@@ -222,7 +222,7 @@ export default function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-sm font-light text-white">{location.name}</h3>
                     {location.is_primary && (
-                      <span className="px-2 py-0.5 text-xs font-light bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <span className="px-2 py-0.5 text-xs font-light bg-slate-700/30 text-slate-300 border border-slate-600/30">
                         Primary
                       </span>
                     )}

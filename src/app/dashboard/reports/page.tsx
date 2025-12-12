@@ -15,19 +15,16 @@ import {
   TrendingDown,
   Download,
   Calendar,
+  LayoutGrid,
+  FileText,
 } from 'lucide-react'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  LineChart,
-  Line,
-} from 'recharts'
-import { FilterBar, useFilters } from '@/components/filters/FilterBar'
+import { ResponsiveBar } from '@nivo/bar'
+import { ResponsiveLine } from '@nivo/line'
+import { nivoTheme, colors } from '@/lib/theme'
+import { FilterBar } from '@/components/filters/FilterBar'
+import ReportBuilder from '@/components/reports/ReportBuilder'
+
+type ReportTab = 'builder' | 'financial'
 
 interface MonthlyReport {
   month: string
@@ -36,6 +33,7 @@ interface MonthlyReport {
   discounts: number
   orders: number
   netRevenue: number
+  [key: string]: string | number
 }
 
 interface PaymentBreakdown {
@@ -133,8 +131,7 @@ const formatPaymentMethod = (method: string): string => {
 
 export default function FinancialReportsPage() {
   const { vendorId } = useAuthStore()
-  const { dateRange } = useDashboardStore()
-  const { filters, setFilters } = useFilters()
+  const { dateRange, filters } = useDashboardStore()
   const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>([])
   const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdown[]>([])
   const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null)
@@ -153,6 +150,7 @@ export default function FinancialReportsPage() {
   const [taxByProcessor, setTaxByProcessor] = useState<TaxByProcessor[]>([])
   const [discountBreakdown, setDiscountBreakdown] = useState<DiscountBreakdown[]>([])
   const [taxReportMonth, setTaxReportMonth] = useState<string>('all') // 'all' or 'YYYY-MM'
+  const [activeTab, setActiveTab] = useState<ReportTab>('builder')
 
   // Generate list of months for the tax report filter (last 24 months)
   const availableMonths = Array.from({ length: 24 }, (_, i) => {
@@ -670,180 +668,287 @@ export default function FinancialReportsPage() {
     : 0
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-light text-white tracking-wide">Financial Reports</h1>
-          <p className="text-zinc-500 text-sm font-light mt-1">Revenue, tax, and payment analytics</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-zinc-500" />
-            <select
-              value={reportPeriod}
-              onChange={(e) => setReportPeriod(Number(e.target.value) as 6 | 12)}
-              className="px-3 py-2 bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:border-zinc-700 text-sm"
-            >
-              <option value={6}>Last 6 Months</option>
-              <option value={12}>Last 12 Months</option>
-            </select>
+    <div className="space-y-4 lg:space-y-6">
+      {/* Page Header with Tabs */}
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Reports</h1>
+            <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">
+              {activeTab === 'builder' ? 'Create custom reports with any dimension' : 'Revenue, tax, and payment analytics'}
+            </p>
           </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 w-fit rounded-sm">
           <button
-            onClick={exportReport}
-            className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm font-light"
+            onClick={() => setActiveTab('builder')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-light transition-colors rounded-sm ${
+              activeTab === 'builder'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
           >
-            <Download className="w-4 h-4" />
-            Export Report
+            <LayoutGrid className="w-4 h-4" />
+            Report Builder
+          </button>
+          <button
+            onClick={() => setActiveTab('financial')}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-light transition-colors rounded-sm ${
+              activeTab === 'financial'
+                ? 'bg-zinc-800 text-white'
+                : 'text-zinc-500 hover:text-zinc-300'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Financial Summary
           </button>
         </div>
       </div>
 
-      {/* Filters */}
-      <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        showDateFilter={false}
-        showPaymentFilter={false}
-      />
+      {/* Report Builder Tab */}
+      {activeTab === 'builder' && <ReportBuilder />}
+
+      {/* Financial Reports Tab */}
+      {activeTab === 'financial' && (
+        <>
+          {/* Header Actions */}
+          <div className="flex items-center gap-2 lg:gap-4 flex-wrap">
+            <div className="flex items-center gap-1.5 lg:gap-2">
+              <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500" />
+              <select
+                value={reportPeriod}
+                onChange={(e) => setReportPeriod(Number(e.target.value) as 6 | 12)}
+                className="px-2 lg:px-3 py-1.5 lg:py-2 bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:border-zinc-700 text-xs lg:text-sm"
+              >
+                <option value={6}>6 Months</option>
+                <option value={12}>12 Months</option>
+              </select>
+            </div>
+            <button
+              onClick={exportReport}
+              className="flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-4 py-1.5 lg:py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-xs lg:text-sm font-light"
+            >
+              <Download className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
+              Export
+            </button>
+          </div>
+
+          {/* Filters */}
+          <FilterBar
+            showPaymentFilter={false}
+          />
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 lg:gap-4">
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
           <div className="flex items-center justify-between">
-            <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-emerald-500" />
+            <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+              <DollarSign className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
             </div>
             {revenueGrowth !== 0 && (
-              <div className={`flex items-center gap-1 text-xs ${revenueGrowth >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {revenueGrowth >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              <div className={`flex items-center gap-0.5 text-[10px] lg:text-xs ${revenueGrowth >= 0 ? 'text-slate-300' : 'text-zinc-500'}`}>
+                {revenueGrowth >= 0 ? <TrendingUp className="w-2.5 h-2.5 lg:w-3 lg:h-3" /> : <TrendingDown className="w-2.5 h-2.5 lg:w-3 lg:h-3" />}
                 {Math.abs(revenueGrowth).toFixed(1)}%
               </div>
             )}
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Gross Revenue</p>
-          <p className="text-xl font-light text-white mt-1">{formatCurrency(totals.grossRevenue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Gross Revenue</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totals.grossRevenue)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
-          <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Receipt className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+            <Receipt className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Tax Collected</p>
-          <p className="text-xl font-light text-white mt-1">{formatCurrency(totals.taxCollected)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Tax Collected</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totals.taxCollected)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
-          <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Percent className="w-5 h-5 text-orange-500" />
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+            <Percent className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Discounts Given</p>
-          <p className="text-xl font-light text-white mt-1">{formatCurrency(totals.discountsGiven)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Discounts</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totals.discountsGiven)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
-          <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+            <TrendingUp className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Net Revenue</p>
-          <p className="text-xl font-light text-white mt-1">{formatCurrency(totals.netRevenue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Net Revenue</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totals.netRevenue)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
-          <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <CreditCard className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+            <CreditCard className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Total Orders</p>
-          <p className="text-xl font-light text-white mt-1">{totals.totalOrders.toLocaleString()}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Orders</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{totals.totalOrders.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-5">
-          <div className="w-9 h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <DollarSign className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-800/50 p-3 lg:p-5 rounded-sm">
+          <div className="w-7 h-7 lg:w-9 lg:h-9 bg-zinc-900 border border-zinc-800 flex items-center justify-center rounded-sm">
+            <DollarSign className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-3">Avg Order Value</p>
-          <p className="text-xl font-light text-white mt-1">{formatCurrency(totals.avgOrderValue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-3">Avg Order</p>
+          <p className="text-base lg:text-xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totals.avgOrderValue)}</p>
         </div>
       </div>
 
       {/* Revenue Chart */}
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide">Monthly Revenue</h3>
-        <div className="h-[300px]">
+      <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+        <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">Monthly Revenue</h3>
+        <div className="h-[200px] lg:h-[300px]">
           {loading ? (
-            <div className="h-full flex items-center justify-center text-zinc-500 text-sm">Loading...</div>
+            <div className="h-full flex items-center justify-center text-zinc-600 text-sm">Loading...</div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyReports}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis dataKey="month" stroke="#71717a" fontSize={12} />
-                <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} stroke="#71717a" fontSize={12} />
-                <Tooltip
-                  formatter={(value: number) => [formatCurrency(value), 'Revenue']}
-                  contentStyle={{
-                    backgroundColor: '#18181b',
-                    border: '1px solid #27272a',
-                    borderRadius: '0px',
+            <ResponsiveBar
+              data={monthlyReports}
+              keys={['revenue', 'netRevenue']}
+              indexBy="month"
+              theme={nivoTheme}
+              margin={{ top: 20, right: 20, bottom: 40, left: 60 }}
+              padding={0.3}
+              groupMode="grouped"
+              colors={[colors.chart.seriesBlue[1], colors.chart.seriesBlue[3]]}
+              borderRadius={3}
+              enableGridX={false}
+              enableGridY={true}
+              axisTop={null}
+              axisRight={null}
+              axisBottom={{
+                tickSize: 0,
+                tickPadding: 12,
+                tickRotation: 0,
+              }}
+              axisLeft={{
+                tickSize: 0,
+                tickPadding: 12,
+                format: (v) => `$${(Number(v) / 1000).toFixed(0)}k`,
+              }}
+              enableLabel={false}
+              tooltip={({ id, value, indexValue }) => (
+                <div
+                  style={{
+                    background: colors.chart.tooltip.bg,
+                    border: `1px solid ${colors.chart.tooltip.border}`,
+                    borderRadius: '6px',
+                    padding: '12px 16px',
                   }}
-                  labelStyle={{ color: '#fff' }}
-                />
-                <Bar dataKey="revenue" fill="#10b981" radius={[0, 0, 0, 0]} name="Gross Revenue" />
-                <Bar dataKey="netRevenue" fill="#0071e3" radius={[0, 0, 0, 0]} name="Net Revenue" />
-              </BarChart>
-            </ResponsiveContainer>
+                >
+                  <div className="text-xs text-zinc-400 mb-1">{indexValue}</div>
+                  <div className="text-sm font-medium text-zinc-100">
+                    {formatCurrency(value as number)}
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {id === 'revenue' ? 'Gross Revenue' : 'Net Revenue'}
+                  </div>
+                </div>
+              )}
+              animate={true}
+              motionConfig="gentle"
+            />
           )}
         </div>
       </div>
 
       {/* Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
         {/* Tax & Discounts Trend */}
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <h3 className="text-sm font-light text-white mb-6 tracking-wide">Tax & Discounts Trend</h3>
-          <div className="h-[250px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={monthlyReports}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                <XAxis dataKey="month" stroke="#71717a" fontSize={12} />
-                <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} stroke="#71717a" fontSize={12} />
-                <Tooltip
-                  formatter={(value: number) => [formatCurrency(value)]}
-                  contentStyle={{
-                    backgroundColor: '#18181b',
-                    border: '1px solid #27272a',
-                    borderRadius: '0px',
+        <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+          <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">Tax & Discounts Trend</h3>
+          <div className="h-[180px] lg:h-[250px]">
+            <ResponsiveLine
+              data={[
+                {
+                  id: 'Tax',
+                  data: monthlyReports.map((r) => ({ x: r.month, y: r.tax })),
+                },
+                {
+                  id: 'Discounts',
+                  data: monthlyReports.map((r) => ({ x: r.month, y: r.discounts })),
+                },
+              ]}
+              theme={nivoTheme}
+              margin={{ top: 20, right: 20, bottom: 40, left: 60 }}
+              xScale={{ type: 'point' }}
+              yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
+              curve="monotoneX"
+              colors={[colors.chart.seriesBlue[0], colors.chart.seriesBlue[2]]}
+              lineWidth={2}
+              enablePoints={true}
+              pointSize={6}
+              pointColor={colors.bg.secondary}
+              pointBorderWidth={2}
+              pointBorderColor={{ from: 'serieColor' }}
+              enableGridX={false}
+              enableGridY={true}
+              axisTop={null}
+              axisRight={null}
+              axisBottom={{
+                tickSize: 0,
+                tickPadding: 12,
+              }}
+              axisLeft={{
+                tickSize: 0,
+                tickPadding: 12,
+                format: (v) => `$${(Number(v) / 1000).toFixed(0)}k`,
+              }}
+              useMesh={true}
+              tooltip={({ point }) => (
+                <div
+                  style={{
+                    background: colors.chart.tooltip.bg,
+                    border: `1px solid ${colors.chart.tooltip.border}`,
+                    borderRadius: '6px',
+                    padding: '12px 16px',
                   }}
-                  labelStyle={{ color: '#fff' }}
-                />
-                <Line type="monotone" dataKey="tax" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} name="Tax Collected" />
-                <Line type="monotone" dataKey="discounts" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} name="Discounts" />
-              </LineChart>
-            </ResponsiveContainer>
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ background: point.color }}
+                    />
+                    <span className="text-xs text-zinc-400">{String(point.id).split('.')[0]}</span>
+                  </div>
+                  <div className="text-sm font-medium text-zinc-100">
+                    {formatCurrency(point.data.y as number)}
+                  </div>
+                </div>
+              )}
+              animate={true}
+              motionConfig="gentle"
+            />
           </div>
         </div>
 
         {/* Payment Methods */}
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <h3 className="text-sm font-light text-white mb-6 tracking-wide">Payment Methods</h3>
+        <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+          <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">Payment Methods</h3>
           {paymentBreakdown.length === 0 ? (
-            <div className="h-[250px] flex items-center justify-center text-zinc-500 text-sm">
+            <div className="h-[180px] lg:h-[250px] flex items-center justify-center text-zinc-600 text-xs lg:text-sm">
               No payment data available
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3 lg:space-y-4">
               {paymentBreakdown.map((item, index) => {
                 const maxAmount = paymentBreakdown[0]?.amount || 1
                 const percentage = (item.amount / maxAmount) * 100
                 return (
                   <div key={item.method}>
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-light text-white">{item.method}</span>
-                      <div className="text-sm text-zinc-500 font-light">
-                        {item.count} transactions · {formatCurrency(item.amount)}
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <span className="text-xs lg:text-sm font-light text-white truncate">{item.method}</span>
+                      <div className="text-[10px] lg:text-sm text-zinc-500 font-light whitespace-nowrap">
+                        {item.count} · {formatCurrency(item.amount)}
                       </div>
                     </div>
-                    <div className="h-1 bg-zinc-900 overflow-hidden">
+                    <div className="h-1 bg-zinc-900 overflow-hidden rounded-full">
                       <div
-                        className="h-full bg-emerald-500"
+                        className="h-full bg-slate-400"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>
@@ -857,24 +962,24 @@ export default function FinancialReportsPage() {
 
       {/* Payment Success Rate */}
       {paymentStats && (
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <h3 className="text-sm font-light text-white mb-6 tracking-wide">Payment Success Rate</h3>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="bg-zinc-950 border border-zinc-800/50 p-4 lg:p-6 rounded-sm">
+          <h3 className="text-xs lg:text-sm font-light text-zinc-200 mb-4 lg:mb-6 tracking-wide uppercase">Payment Success Rate</h3>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-6">
             <div className="text-center">
-              <div className="text-3xl font-light text-emerald-400">{paymentStats.successful}</div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mt-2">Successful</p>
+              <div className="text-xl lg:text-3xl font-light text-slate-200">{paymentStats.successful}</div>
+              <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-1 lg:mt-2">Successful</p>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-light text-red-400">{paymentStats.failed}</div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mt-2">Failed</p>
+              <div className="text-xl lg:text-3xl font-light text-zinc-500">{paymentStats.failed}</div>
+              <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-1 lg:mt-2">Failed</p>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-light text-yellow-400">{paymentStats.pending}</div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mt-2">Pending</p>
+              <div className="text-xl lg:text-3xl font-light text-zinc-400">{paymentStats.pending}</div>
+              <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-1 lg:mt-2">Pending</p>
             </div>
             <div className="text-center">
-              <div className="text-3xl font-light text-white">{paymentStats.successRate.toFixed(1)}%</div>
-              <p className="text-xs text-zinc-500 uppercase tracking-wider mt-2">Success Rate</p>
+              <div className="text-xl lg:text-3xl font-light text-white">{paymentStats.successRate.toFixed(1)}%</div>
+              <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-1 lg:mt-2">Success Rate</p>
             </div>
           </div>
         </div>
@@ -904,8 +1009,8 @@ export default function FinancialReportsPage() {
                   <td className="px-6 py-4 text-sm text-zinc-400 text-right font-light">{report.orders.toLocaleString()}</td>
                   <td className="px-6 py-4 text-sm text-white text-right font-light">{formatCurrency(report.revenue)}</td>
                   <td className="px-6 py-4 text-sm text-zinc-400 text-right font-light">{formatCurrency(report.tax)}</td>
-                  <td className="px-6 py-4 text-sm text-orange-400 text-right font-light">-{formatCurrency(report.discounts)}</td>
-                  <td className="px-6 py-4 text-sm font-light text-emerald-400 text-right">{formatCurrency(report.netRevenue)}</td>
+                  <td className="px-6 py-4 text-sm text-zinc-500 text-right font-light">-{formatCurrency(report.discounts)}</td>
+                  <td className="px-6 py-4 text-sm font-light text-slate-300 text-right">{formatCurrency(report.netRevenue)}</td>
                 </tr>
               ))}
             </tbody>
@@ -915,8 +1020,8 @@ export default function FinancialReportsPage() {
                 <td className="px-6 py-4 text-sm text-white text-right font-light">{totals.totalOrders.toLocaleString()}</td>
                 <td className="px-6 py-4 text-sm text-white text-right font-light">{formatCurrency(totals.grossRevenue)}</td>
                 <td className="px-6 py-4 text-sm text-white text-right font-light">{formatCurrency(totals.taxCollected)}</td>
-                <td className="px-6 py-4 text-sm text-orange-400 text-right font-light">-{formatCurrency(totals.discountsGiven)}</td>
-                <td className="px-6 py-4 text-sm text-emerald-400 text-right font-light">{formatCurrency(totals.netRevenue)}</td>
+                <td className="px-6 py-4 text-sm text-zinc-500 text-right font-light">-{formatCurrency(totals.discountsGiven)}</td>
+                <td className="px-6 py-4 text-sm text-slate-300 text-right font-light">{formatCurrency(totals.netRevenue)}</td>
               </tr>
             </tfoot>
           </table>
@@ -973,10 +1078,10 @@ export default function FinancialReportsPage() {
                     <td className="px-4 py-3 text-sm font-light text-white">{proc.processor}</td>
                     <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{proc.orders.toLocaleString()}</td>
                     <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.grossSubtotal)}</td>
-                    <td className="px-4 py-3 text-sm text-orange-400 text-right font-light">-{formatCurrency(proc.discounts)}</td>
+                    <td className="px-4 py-3 text-sm text-zinc-500 text-right font-light">-{formatCurrency(proc.discounts)}</td>
                     <td className="px-4 py-3 text-sm text-zinc-300 text-right font-light">{formatCurrency(proc.netSubtotal)}</td>
                     <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(proc.shipping)}</td>
-                    <td className="px-4 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(proc.taxCollected)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">{formatCurrency(proc.taxCollected)}</td>
                     <td className="px-4 py-3 text-sm text-white text-right font-light">{formatCurrency(proc.totalCharged)}</td>
                   </tr>
                 ))}
@@ -990,7 +1095,7 @@ export default function FinancialReportsPage() {
                   <td className="px-4 py-3 text-sm text-white text-right font-light">
                     {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.grossSubtotal, 0))}
                   </td>
-                  <td className="px-4 py-3 text-sm text-orange-400 text-right font-light">
+                  <td className="px-4 py-3 text-sm text-zinc-500 text-right font-light">
                     -{formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.discounts, 0))}
                   </td>
                   <td className="px-4 py-3 text-sm text-white text-right font-light">
@@ -999,7 +1104,7 @@ export default function FinancialReportsPage() {
                   <td className="px-4 py-3 text-sm text-white text-right font-light">
                     {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.shipping, 0))}
                   </td>
-                  <td className="px-4 py-3 text-sm text-emerald-400 text-right font-light">
+                  <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">
                     {formatCurrency(taxByProcessor.reduce((sum, p) => sum + p.taxCollected, 0))}
                   </td>
                   <td className="px-4 py-3 text-sm text-white text-right font-light">
@@ -1028,40 +1133,40 @@ export default function FinancialReportsPage() {
               <table className="w-full">
                 <thead className="border-b border-zinc-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Location</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Subtotal</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Rate</th>
+                    <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">Location</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Net Sales</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Rate</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
                   {taxByLocation.map((loc) => (
                     <tr key={loc.locationId} className="hover:bg-zinc-900/50 transition-colors">
-                      <td className="px-6 py-3 text-sm font-light text-white">
+                      <td className="px-4 py-3 text-sm font-light text-white">
                         {loc.locationName}
                         <span className="text-zinc-500 ml-2">({loc.state})</span>
                       </td>
-                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{loc.orders.toLocaleString()}</td>
-                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(loc.subtotal)}</td>
-                      <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(loc.taxCollected)}</td>
-                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{loc.effectiveRate.toFixed(2)}%</td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{loc.orders.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(loc.netSales)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">{formatCurrency(loc.taxCollected)}</td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{loc.effectiveRate.toFixed(2)}%</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
                   <tr>
-                    <td className="px-6 py-3 text-sm font-light text-white">Total</td>
-                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                    <td className="px-4 py-3 text-sm font-light text-white">Total</td>
+                    <td className="px-4 py-3 text-sm text-white text-right font-light">
                       {taxByLocation.reduce((sum, l) => sum + l.orders, 0).toLocaleString()}
                     </td>
-                    <td className="px-6 py-3 text-sm text-white text-right font-light">
-                      {formatCurrency(taxByLocation.reduce((sum, l) => sum + l.subtotal, 0))}
+                    <td className="px-4 py-3 text-sm text-white text-right font-light">
+                      {formatCurrency(taxByLocation.reduce((sum, l) => sum + l.netSales, 0))}
                     </td>
-                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                    <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">
                       {formatCurrency(taxByLocation.reduce((sum, l) => sum + l.taxCollected, 0))}
                     </td>
-                    <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">-</td>
+                    <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">-</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1084,32 +1189,32 @@ export default function FinancialReportsPage() {
               <table className="w-full">
                 <thead className="border-b border-zinc-900">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">State</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Taxable Sales</th>
-                    <th className="px-6 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax Collected</th>
+                    <th className="px-4 py-3 text-left text-xs font-light text-zinc-500 uppercase tracking-wider">State</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Orders</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Net Sales</th>
+                    <th className="px-4 py-3 text-right text-xs font-light text-zinc-500 uppercase tracking-wider">Tax Collected</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-900">
                   {taxByState.map((state) => (
                     <tr key={state.state} className="hover:bg-zinc-900/50 transition-colors">
-                      <td className="px-6 py-3 text-sm font-light text-white">{state.state}</td>
-                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{state.orders.toLocaleString()}</td>
-                      <td className="px-6 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(state.subtotal)}</td>
-                      <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">{formatCurrency(state.taxCollected)}</td>
+                      <td className="px-4 py-3 text-sm font-light text-white">{state.state}</td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{state.orders.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 text-right font-light">{formatCurrency(state.netSales)}</td>
+                      <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">{formatCurrency(state.taxCollected)}</td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot className="border-t border-zinc-800 bg-zinc-900/30">
                   <tr>
-                    <td className="px-6 py-3 text-sm font-light text-white">Total</td>
-                    <td className="px-6 py-3 text-sm text-white text-right font-light">
+                    <td className="px-4 py-3 text-sm font-light text-white">Total</td>
+                    <td className="px-4 py-3 text-sm text-white text-right font-light">
                       {taxByState.reduce((sum, s) => sum + s.orders, 0).toLocaleString()}
                     </td>
-                    <td className="px-6 py-3 text-sm text-white text-right font-light">
-                      {formatCurrency(taxByState.reduce((sum, s) => sum + s.subtotal, 0))}
+                    <td className="px-4 py-3 text-sm text-white text-right font-light">
+                      {formatCurrency(taxByState.reduce((sum, s) => sum + s.netSales, 0))}
                     </td>
-                    <td className="px-6 py-3 text-sm text-emerald-400 text-right font-light">
+                    <td className="px-4 py-3 text-sm text-slate-300 text-right font-light">
                       {formatCurrency(taxByState.reduce((sum, s) => sum + s.taxCollected, 0))}
                     </td>
                   </tr>
@@ -1137,11 +1242,11 @@ export default function FinancialReportsPage() {
                     <span className="text-sm font-light text-white">{discount.type}</span>
                     <span className="text-xs text-zinc-500">{percentage.toFixed(1)}%</span>
                   </div>
-                  <div className="text-xl font-light text-orange-400">{formatCurrency(discount.amount)}</div>
+                  <div className="text-xl font-light text-zinc-500">{formatCurrency(discount.amount)}</div>
                   <div className="text-xs text-zinc-500 mt-1">{discount.orders.toLocaleString()} orders</div>
                   <div className="h-1 bg-zinc-800 mt-3 overflow-hidden">
                     <div
-                      className="h-full bg-orange-500"
+                      className="h-full bg-slate-500"
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
@@ -1151,11 +1256,13 @@ export default function FinancialReportsPage() {
           </div>
           <div className="mt-4 pt-4 border-t border-zinc-800 flex justify-between items-center">
             <span className="text-sm font-light text-white">Total Discounts</span>
-            <span className="text-xl font-light text-orange-400">
+            <span className="text-xl font-light text-zinc-500">
               {formatCurrency(discountBreakdown.reduce((sum, d) => sum + d.amount, 0))}
             </span>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )

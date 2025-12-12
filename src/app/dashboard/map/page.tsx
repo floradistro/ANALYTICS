@@ -15,7 +15,7 @@ const MapboxMap = dynamic(() => import('@/components/map/MapboxMap'), {
   loading: () => (
     <div className="absolute inset-0 bg-black flex items-center justify-center">
       <div className="text-center">
-        <Crosshair className="w-8 h-8 text-teal-400 mx-auto mb-3 animate-pulse" />
+        <Crosshair className="w-8 h-8 text-slate-300 mx-auto mb-3 animate-pulse" />
         <p className="text-xs font-mono text-zinc-500 uppercase tracking-wider">Loading map...</p>
       </div>
     </div>
@@ -101,7 +101,7 @@ export default function MapDashboardPage() {
       while (true) {
         let query = supabase
           .from('orders')
-          .select('id, customer_id, shipping_name, shipping_address, shipping_city, shipping_state, total_amount, order_type, pickup_location_id, status, payment_status, created_at')
+          .select('id, customer_id, shipping_name, shipping_address, shipping_city, shipping_state, total_amount, subtotal, discount_amount, affiliate_discount_amount, metadata, order_type, pickup_location_id, status, payment_status, created_at')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')  // Only count paid orders
           .neq('status', 'cancelled')     // Exclude cancelled
@@ -127,6 +127,18 @@ export default function MapDashboardPage() {
 
       const orders = allOrders
       console.log('Fetched orders:', orders.length)
+
+      // Helper: Calculate net revenue (after discounts)
+      const getNetRevenue = (order: any): number => {
+        const totalDiscounts =
+          parseFloat(order.discount_amount || 0) +
+          parseFloat(order.affiliate_discount_amount || 0) +
+          parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+          parseFloat(order.metadata?.campaign_discount_amount || 0)
+        // Use subtotal - discounts (or total_amount if no discounts tracked)
+        const subtotal = parseFloat(order.subtotal || order.total_amount || 0)
+        return subtotal - totalDiscounts
+      }
 
       // Fetch ALL customers with full address data (no limit)
       let allCustomers: any[] = []
@@ -179,7 +191,7 @@ export default function MapDashboardPage() {
         if (order.pickup_location_id && storeMap.has(order.pickup_location_id)) {
           const existing = storeOrderAgg.get(order.pickup_location_id) || { orders: 0, revenue: 0 }
           existing.orders += 1
-          existing.revenue += order.total_amount || 0
+          existing.revenue += getNetRevenue(order)
           storeOrderAgg.set(order.pickup_location_id, existing)
         }
       }
@@ -309,10 +321,12 @@ export default function MapDashboardPage() {
           const state = order.shipping_state ? normalizeState(order.shipping_state) : null
 
           if (state) {
+            const netRevenue = getNetRevenue(order)
+
             // Track state aggregation for sidebar
             const existing = shippingStateAgg.get(state) || { orders: 0, revenue: 0 }
             existing.orders += 1
-            existing.revenue += order.total_amount || 0
+            existing.revenue += netRevenue
             shippingStateAgg.set(state, existing)
 
             // Collect for geocoding
@@ -322,13 +336,13 @@ export default function MapDashboardPage() {
                 address: order.shipping_address,
                 city: order.shipping_city,
                 state,
-                total_amount: order.total_amount || 0,
+                total_amount: netRevenue,
               })
             } else {
               shippingWithStateOnly.push({
                 id: order.id,
                 state,
-                total_amount: order.total_amount || 0,
+                total_amount: netRevenue,
               })
             }
           }
@@ -618,8 +632,8 @@ export default function MapDashboardPage() {
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/50 bg-black/40 backdrop-blur-sm z-20">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-teal-400 rounded-full animate-pulse" />
-            <span className="text-[10px] font-mono text-teal-400 uppercase tracking-[0.2em]">Live</span>
+            <div className="w-2 h-2 bg-slate-400 rounded-full animate-pulse" />
+            <span className="text-[10px] font-mono text-slate-300 uppercase tracking-[0.2em]">Live</span>
           </div>
           <div className="h-4 w-px bg-zinc-700" />
           <h1 className="text-sm font-mono text-zinc-300 uppercase tracking-wider">Geographic Command</h1>
@@ -631,7 +645,7 @@ export default function MapDashboardPage() {
               onClick={() => setShowAllTime(true)}
               className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors ${
                 showAllTime
-                  ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                  ? 'bg-teal-500/20 text-slate-300 border border-teal-500/30'
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
@@ -641,7 +655,7 @@ export default function MapDashboardPage() {
               onClick={() => setShowAllTime(false)}
               className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider transition-colors ${
                 !showAllTime
-                  ? 'bg-teal-500/20 text-teal-400 border border-teal-500/30'
+                  ? 'bg-teal-500/20 text-slate-300 border border-teal-500/30'
                   : 'text-zinc-500 hover:text-zinc-300'
               }`}
             >
@@ -651,7 +665,7 @@ export default function MapDashboardPage() {
           <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
             <span>{stats.stateCount} Regions</span>
           </div>
-          <span className="text-[10px] font-mono text-teal-400 uppercase tracking-wider">{stats.totalOrders.toLocaleString()} Orders</span>
+          <span className="text-[10px] font-mono text-slate-300 uppercase tracking-wider">{stats.totalOrders.toLocaleString()} Orders</span>
         </div>
       </div>
 
@@ -693,10 +707,10 @@ export default function MapDashboardPage() {
 
             <div className="bg-zinc-900/50 border border-zinc-800/50 p-3">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono text-zinc-500 uppercase">Total Revenue</span>
-                <Zap className="w-3 h-3 text-teal-400" />
+                <span className="text-[10px] font-mono text-zinc-500 uppercase">Net Revenue</span>
+                <Zap className="w-3 h-3 text-slate-300" />
               </div>
-              <span className="text-xl font-mono text-teal-400">{formatCurrency(stats.totalRevenue)}</span>
+              <span className="text-xl font-mono text-slate-300">{formatCurrency(stats.totalRevenue)}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -718,10 +732,10 @@ export default function MapDashboardPage() {
                 <Target className="w-3 h-3" />
                 <span>Top Region</span>
               </div>
-              <div className="bg-teal-500/10 border border-teal-500/30 p-3">
+              <div className="bg-slate-700/20 border border-slate-600/30 p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-mono text-teal-400 font-bold">{stats.topState.name}</span>
-                  <span className="text-[10px] font-mono text-teal-400/60">#{1}</span>
+                  <span className="text-sm font-mono text-slate-300 font-bold">{stats.topState.name}</span>
+                  <span className="text-[10px] font-mono text-slate-300/60">#{1}</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
                   <div>
@@ -758,7 +772,7 @@ export default function MapDashboardPage() {
                     </div>
                     <div className="flex items-center gap-3 text-[10px] font-mono">
                       <span className="text-zinc-500">{data.orders}</span>
-                      <span className="text-teal-400">{formatCurrency(data.revenue)}</span>
+                      <span className="text-slate-300">{formatCurrency(data.revenue)}</span>
                     </div>
                   </div>
                 ))}
@@ -773,12 +787,12 @@ export default function MapDashboardPage() {
                 onClick={() => setVisibleLayers(v => ({ ...v, stores: !v.stores }))}
                 className={`w-full flex items-center justify-between py-2 px-2 border transition-colors ${
                   visibleLayers.stores
-                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-400'
+                    ? 'bg-zinc-800/50 border-zinc-700/50 text-zinc-300'
                     : 'bg-zinc-900/30 border-zinc-800/30 text-zinc-500'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${visibleLayers.stores ? 'bg-amber-400' : 'bg-zinc-600'}`} />
+                  <div className={`w-3 h-3 rounded-full ${visibleLayers.stores ? 'bg-zinc-400' : 'bg-zinc-600'}`} />
                   <span className="text-[10px] font-mono uppercase">Stores</span>
                 </div>
                 <span className="text-[10px] font-mono">{layers.stores.length} locations</span>
@@ -803,12 +817,12 @@ export default function MapDashboardPage() {
                 onClick={() => setVisibleLayers(v => ({ ...v, shipping: !v.shipping }))}
                 className={`w-full flex items-center justify-between py-2 px-2 border transition-colors ${
                   visibleLayers.shipping
-                    ? 'bg-teal-500/10 border-teal-500/30 text-teal-400'
+                    ? 'bg-teal-500/10 border-teal-500/30 text-slate-300'
                     : 'bg-zinc-900/30 border-zinc-800/30 text-zinc-500'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${visibleLayers.shipping ? 'bg-teal-400' : 'bg-zinc-600'}`} />
+                  <div className={`w-3 h-3 rounded-full ${visibleLayers.shipping ? 'bg-slate-400' : 'bg-zinc-600'}`} />
                   <span className="text-[10px] font-mono uppercase">Shipping</span>
                 </div>
                 <span className="text-[10px] font-mono">{shippingCount} orders</span>
@@ -818,12 +832,12 @@ export default function MapDashboardPage() {
                 onClick={() => setVisibleLayers(v => ({ ...v, traffic: !v.traffic }))}
                 className={`w-full flex items-center justify-between py-2 px-2 border transition-colors ${
                   visibleLayers.traffic
-                    ? 'bg-rose-500/10 border-rose-500/30 text-rose-400'
+                    ? 'bg-rose-500/10 border-rose-500/30 text-zinc-400'
                     : 'bg-zinc-900/30 border-zinc-800/30 text-zinc-500'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${visibleLayers.traffic ? 'bg-rose-400' : 'bg-zinc-600'}`} />
+                  <div className={`w-3 h-3 rounded-full ${visibleLayers.traffic ? 'bg-zinc-500' : 'bg-zinc-600'}`} />
                   <span className="text-[10px] font-mono uppercase">Web Traffic</span>
                 </div>
                 <span className="text-[10px] font-mono">{trafficCount} visitors</span>
@@ -835,7 +849,7 @@ export default function MapDashboardPage() {
           {/* Live Activity Feed - Fixed at bottom */}
           <div className="p-4 border-t border-zinc-800/50 flex-shrink-0">
             <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-500 uppercase tracking-wider mb-3">
-              <Radio className="w-3 h-3 text-rose-400 animate-pulse" />
+              <Radio className="w-3 h-3 text-zinc-400 animate-pulse" />
               <span>Live Activity</span>
             </div>
             <div className="space-y-1.5 max-h-[180px] overflow-y-auto">
@@ -859,11 +873,11 @@ export default function MapDashboardPage() {
                       <div className="flex items-center gap-1.5">
                         <div className={`w-1.5 h-1.5 rounded-full ${
                           item.type === 'purchase' ? 'bg-green-400' :
-                          item.type === 'event' ? 'bg-amber-400' : 'bg-rose-400'
+                          item.type === 'event' ? 'bg-zinc-400' : 'bg-zinc-500'
                         }`} />
                         <span className={`text-[10px] font-mono ${
                           item.type === 'purchase' ? 'text-green-400' :
-                          item.type === 'event' ? 'text-amber-400' : 'text-rose-400'
+                          item.type === 'event' ? 'text-zinc-300' : 'text-zinc-400'
                         }`}>
                           {item.type === 'visitor' ? 'Visit' :
                            item.eventName === 'add_to_cart' ? 'Cart+' :

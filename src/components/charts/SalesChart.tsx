@@ -1,16 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
+import { ResponsiveLine } from '@nivo/line'
 import { format } from 'date-fns'
+import { nivoTheme, colors, formatCurrency } from '@/lib/theme'
 
 interface SalesData {
   date: string
@@ -24,96 +16,109 @@ interface SalesChartProps {
 }
 
 export function SalesChart({ data, metric = 'revenue' }: SalesChartProps) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const chartData = [
+    {
+      id: metric === 'revenue' ? 'Revenue' : 'Orders',
+      data: data.map((item) => ({
+        x: item.date,
+        y: item[metric],
+      })),
+    },
+  ]
 
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0]
-      if (entry) {
-        const { width, height } = entry.contentRect
-        if (width > 0 && height > 0) {
-          setDimensions({ width, height })
-        }
-      }
-    })
-
-    observer.observe(container)
-    return () => observer.disconnect()
-  }, [])
-
-  const formatCurrency = (value: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
-    }).format(value)
-
-  const formatDate = (dateStr: string) => {
+  const formatDate = (value: string | number) => {
     try {
-      return format(new Date(dateStr), 'MMM d')
+      return format(new Date(String(value)), 'MMM d')
     } catch {
-      return dateStr
+      return String(value)
     }
   }
 
+  if (data.length === 0) {
+    return (
+      <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+        <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase">
+          {metric === 'revenue' ? 'Revenue Trend' : 'Orders Trend'}
+        </h3>
+        <div className="h-[300px] flex items-center justify-center text-zinc-600 text-sm">
+          No data available
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="bg-zinc-950 border border-zinc-900 p-6">
-      <h3 className="text-sm font-light text-white mb-6 tracking-wide">
+    <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+      <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase">
         {metric === 'revenue' ? 'Revenue Trend' : 'Orders Trend'}
       </h3>
-      <div ref={containerRef} className="h-[300px] min-h-[300px]">
-        {dimensions.width > 0 && dimensions.height > 0 && (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id={`color${metric}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={metric === 'revenue' ? '#10b981' : '#0071e3'} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={metric === 'revenue' ? '#10b981' : '#0071e3'} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#27272a" vertical={false} />
-              <XAxis
-                dataKey="date"
-                tickFormatter={formatDate}
-                stroke="#52525b"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                tickFormatter={metric === 'revenue' ? formatCurrency : undefined}
-                stroke="#52525b"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-              />
-              <Tooltip
-                formatter={(value: number) =>
-                  metric === 'revenue' ? formatCurrency(value) : value
-                }
-                labelFormatter={formatDate}
-                contentStyle={{
-                  backgroundColor: '#18181b',
-                  border: '1px solid #27272a',
-                  borderRadius: '0',
-                  color: '#f5f5f7',
-                }}
-                labelStyle={{ color: '#71717a' }}
-              />
-              <Area
-                type="monotone"
-                dataKey={metric}
-                stroke={metric === 'revenue' ? '#10b981' : '#0071e3'}
-                strokeWidth={2}
-                fill={`url(#color${metric})`}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
+      <div className="h-[300px]">
+        <ResponsiveLine
+          data={chartData}
+          theme={nivoTheme}
+          margin={{ top: 20, right: 20, bottom: 40, left: 60 }}
+          xScale={{ type: 'point' }}
+          yScale={{ type: 'linear', min: 'auto', max: 'auto', stacked: false }}
+          curve="monotoneX"
+          colors={[colors.chart.seriesBlue[0]]}
+          lineWidth={2}
+          enablePoints={false}
+          enableArea={true}
+          areaOpacity={0.1}
+          areaBaselineValue={0}
+          enableGridX={false}
+          enableGridY={true}
+          axisTop={null}
+          axisRight={null}
+          axisBottom={{
+            tickSize: 0,
+            tickPadding: 12,
+            tickRotation: 0,
+            format: formatDate,
+            tickValues: data.length > 10 ? 'every 2 values' : undefined,
+          }}
+          axisLeft={{
+            tickSize: 0,
+            tickPadding: 12,
+            tickRotation: 0,
+            format: metric === 'revenue' ? (v) => formatCurrency(Number(v)) : undefined,
+          }}
+          pointSize={0}
+          useMesh={true}
+          enableSlices="x"
+          sliceTooltip={({ slice }) => (
+            <div
+              style={{
+                background: colors.chart.tooltip.bg,
+                border: `1px solid ${colors.chart.tooltip.border}`,
+                borderRadius: '6px',
+                padding: '12px 16px',
+              }}
+            >
+              <div className="text-xs text-zinc-500 mb-1">
+                {formatDate(slice.points[0].data.x)}
+              </div>
+              <div className="text-sm font-medium text-zinc-100">
+                {metric === 'revenue'
+                  ? formatCurrency(Number(slice.points[0].data.y))
+                  : `${slice.points[0].data.y} orders`}
+              </div>
+            </div>
+          )}
+          animate={true}
+          motionConfig="gentle"
+          defs={[
+            {
+              id: 'areaGradient',
+              type: 'linearGradient',
+              colors: [
+                { offset: 0, color: colors.chart.seriesBlue[0], opacity: 0.2 },
+                { offset: 100, color: colors.chart.seriesBlue[0], opacity: 0 },
+              ],
+            },
+          ]}
+          fill={[{ match: '*', id: 'areaGradient' }]}
+        />
       </div>
     </div>
   )

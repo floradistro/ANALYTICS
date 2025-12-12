@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { SalesChart } from '@/components/charts/SalesChart'
 import { TopProductsChart } from '@/components/charts/TopProductsChart'
-import { FilterBar, useFilters, FilterState } from '@/components/filters/FilterBar'
+import { FilterBar } from '@/components/filters/FilterBar'
 import { DollarSign, ShoppingCart, TrendingUp, TrendingDown, Package, Receipt } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { getDateRangeForQuery, generateDateRange } from '@/lib/date-utils'
@@ -32,8 +32,7 @@ interface TopProduct {
 
 export default function SalesAnalyticsPage() {
   const { vendorId } = useAuthStore()
-  const { dateRange } = useDashboardStore()
-  const { filters, setFilters } = useFilters()
+  const { dateRange, filters } = useDashboardStore()
   const [salesData, setSalesData] = useState<SalesData[]>([])
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
   const [categorySales, setCategorySales] = useState<CategorySales[]>([])
@@ -83,7 +82,7 @@ export default function SalesAnalyticsPage() {
       while (hasMore) {
         let query = supabase
           .from('orders')
-          .select('created_at, total_amount, tax_amount, order_type, status, payment_status')
+          .select('created_at, total_amount, subtotal, tax_amount, discount_amount, affiliate_discount_amount, metadata, order_type, status, payment_status')
           .eq('vendor_id', vendorId)
           .gte('created_at', start)
           .lte('created_at', end)
@@ -112,11 +111,26 @@ export default function SalesAnalyticsPage() {
         page++
       }
 
-      // Filter for recognized revenue only (ASC 606 compliant)
-      // Revenue recognized when: paid AND (completed OR delivered)
+      // For Sales Analytics: show ALL paid orders (cash collected)
+      // This differs from Financial Reports which uses ASC 606 recognized revenue
       const orders = allOrders.filter(
-        (o) => o.payment_status === 'paid' && (o.status === 'completed' || o.status === 'delivered')
+        (o) => o.payment_status === 'paid' && o.status !== 'cancelled'
       )
+
+      // Helper: Calculate net revenue (subtotal - discounts)
+      const getNetRevenue = (order: any): number => {
+        const subtotal = parseFloat(order.subtotal || 0)
+        const discounts =
+          parseFloat(order.discount_amount || 0) +
+          parseFloat(order.affiliate_discount_amount || 0) +
+          parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+          parseFloat(order.metadata?.campaign_discount_amount || 0)
+        return subtotal - discounts
+      }
+
+      // Debug logging
+      const debugNetRevenue = orders.reduce((sum, o) => sum + getNetRevenue(o), 0)
+      console.log('[SalesData] Orders:', orders.length, '| Net Revenue:', debugNetRevenue.toFixed(2))
 
       // Group by date - initialize all dates in range for consistent charts
       const salesByDate = new Map<string, { revenue: number; orders: number; tax: number }>()
@@ -131,9 +145,9 @@ export default function SalesAnalyticsPage() {
         const date = new Date(order.created_at).toISOString().split('T')[0]
         const existing = salesByDate.get(date) || { revenue: 0, orders: 0, tax: 0 }
         salesByDate.set(date, {
-          revenue: existing.revenue + (order.total_amount || 0),
+          revenue: existing.revenue + getNetRevenue(order),
           orders: existing.orders + 1,
-          tax: existing.tax + (order.tax_amount || 0),
+          tax: existing.tax + parseFloat(order.tax_amount || 0),
         })
       })
 
@@ -192,29 +206,43 @@ export default function SalesAnalyticsPage() {
       }
 
       const orderIds = allOrderIds
+      console.log('[TopProducts] Found order IDs:', orderIds.length)
 
       if (orderIds.length === 0) {
+        console.log('[TopProducts] No orders found, returning empty')
         setTopProducts([])
         return
       }
 
-      // Batch order IDs
-      const chunkSize = 50
+      // Batch order IDs - use larger chunks and parallel fetching
+      const chunkSize = 200
       const chunks: string[][] = []
       for (let i = 0; i < orderIds.length; i += chunkSize) {
         chunks.push(orderIds.slice(i, i + chunkSize))
       }
 
-      const allOrderItems: any[] = []
-      for (const chunk of chunks) {
-        const { data: orderItems, error: itemsError } = await supabase
-          .from('order_items')
-          .select('product_id, product_name, quantity, unit_price')
-          .in('order_id', chunk)
+      console.log('[TopProducts] Fetching order items in', chunks.length, 'parallel chunks')
 
-        if (itemsError) throw itemsError
-        if (orderItems) allOrderItems.push(...orderItems)
+      // Fetch all chunks in parallel
+      const chunkResults = await Promise.all(
+        chunks.map(chunk =>
+          supabase
+            .from('order_items')
+            .select('product_id, product_name, quantity, unit_price')
+            .in('order_id', chunk)
+        )
+      )
+
+      const allOrderItems: any[] = []
+      for (const { data, error } of chunkResults) {
+        if (error) {
+          console.error('[TopProducts] Error fetching order items:', error)
+          throw error
+        }
+        if (data) allOrderItems.push(...data)
       }
+
+      console.log('[TopProducts] Found order items:', allOrderItems.length)
 
       // Aggregate by product
       const productMap = new Map<string, { name: string; totalSold: number; revenue: number }>()
@@ -287,44 +315,88 @@ export default function SalesAnalyticsPage() {
       }
 
       const orderIds = allOrderIds
+      console.log('[CategorySales] Found order IDs:', orderIds.length)
 
       if (orderIds.length === 0) {
+        console.log('[CategorySales] No orders found, returning empty')
         setCategorySales([])
         setLoading(false)
         return
       }
 
-      // Batch order IDs
-      const chunkSize = 50
+      // Fetch categories for lookup
+      const { data: categoriesData } = await supabase
+        .from('categories')
+        .select('id, name')
+        .or(`vendor_id.is.null,vendor_id.eq.${vendorId}`)
+
+      console.log('[CategorySales] Found categories:', categoriesData?.length || 0)
+
+      const categoryLookup = new Map<string, string>()
+      categoriesData?.forEach(cat => categoryLookup.set(cat.id, cat.name))
+
+      // Fetch products with their category IDs
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('id, primary_category_id')
+        .eq('vendor_id', vendorId)
+
+      console.log('[CategorySales] Found products:', productsData?.length || 0)
+
+      const productCategoryMap = new Map<string, string>()
+      productsData?.forEach(p => {
+        if (p.primary_category_id) {
+          productCategoryMap.set(p.id, p.primary_category_id)
+        }
+      })
+
+      console.log('[CategorySales] Products with categories:', productCategoryMap.size)
+
+      // Batch order IDs - use larger chunks and parallel fetching
+      const chunkSize = 200
       const chunks: string[][] = []
       for (let i = 0; i < orderIds.length; i += chunkSize) {
         chunks.push(orderIds.slice(i, i + chunkSize))
       }
 
-      const allOrderItems: any[] = []
-      for (const chunk of chunks) {
-        const { data: chunkItems, error: itemsError } = await supabase
-          .from('order_items')
-          .select('product_id, product_name, quantity, unit_price')
-          .in('order_id', chunk)
+      // Fetch all chunks in parallel
+      const chunkResults = await Promise.all(
+        chunks.map(chunk =>
+          supabase
+            .from('order_items')
+            .select('product_id, product_name, quantity, unit_price')
+            .in('order_id', chunk)
+        )
+      )
 
-        if (itemsError) throw itemsError
-        if (chunkItems) allOrderItems.push(...chunkItems)
+      const allOrderItems: any[] = []
+      for (const { data, error } of chunkResults) {
+        if (error) {
+          console.error('[CategorySales] Error fetching order items:', error)
+          throw error
+        }
+        if (data) allOrderItems.push(...data)
       }
 
-      const categoryMap = new Map<string, { revenue: number; orders: number }>()
+      console.log('[CategorySales] Found order items:', allOrderItems.length)
+
+      const categoryRevenueMap = new Map<string, { revenue: number; orders: number }>()
 
       allOrderItems.forEach((item: any) => {
-        const categoryName = item.product_name || 'Uncategorized'
+        // Look up the category through product -> category chain
+        const categoryId = productCategoryMap.get(item.product_id)
+        const categoryName = categoryId ? categoryLookup.get(categoryId) : null
+        const finalCategory = categoryName || 'Uncategorized'
+
         const itemRevenue = (item.quantity || 0) * (item.unit_price || 0)
-        const existing = categoryMap.get(categoryName) || { revenue: 0, orders: 0 }
-        categoryMap.set(categoryName, {
+        const existing = categoryRevenueMap.get(finalCategory) || { revenue: 0, orders: 0 }
+        categoryRevenueMap.set(finalCategory, {
           revenue: existing.revenue + itemRevenue,
           orders: existing.orders + 1,
         })
       })
 
-      const sortedCategories = Array.from(categoryMap.entries())
+      const sortedCategories = Array.from(categoryRevenueMap.entries())
         .map(([category, data]) => ({ category, ...data }))
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 10)
@@ -365,75 +437,72 @@ export default function SalesAnalyticsPage() {
   const revenueTrend = prev7Revenue > 0 ? ((last7Revenue - prev7Revenue) / prev7Revenue) * 100 : 0
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-4 lg:space-y-6">
+      <div className="flex flex-col gap-2 sm:gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-light text-white tracking-wide">Sales Analytics</h1>
-          <p className="text-zinc-500 text-sm font-light mt-1">Track your sales performance and trends</p>
+          <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Sales Analytics</h1>
+          <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">Track your sales performance and trends</p>
         </div>
       </div>
 
       {/* Filters */}
       <FilterBar
-        filters={filters}
-        onChange={setFilters}
-        showDateFilter={false}
         showPaymentFilter={false}
       />
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 lg:gap-4">
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
           <div className="flex items-center justify-between">
-            <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-              <DollarSign className="w-5 h-5 text-emerald-500" />
+            <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+              <DollarSign className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
             </div>
-            <div className={`flex items-center gap-1 text-sm ${revenueTrend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {revenueTrend >= 0 ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
+            <div className={`flex items-center gap-0.5 lg:gap-1 text-[10px] lg:text-sm ${revenueTrend >= 0 ? 'text-slate-300' : 'text-zinc-500'}`}>
+              {revenueTrend >= 0 ? <TrendingUp className="w-3 h-3 lg:w-4 lg:h-4" /> : <TrendingDown className="w-3 h-3 lg:w-4 lg:h-4" />}
               {Math.abs(revenueTrend).toFixed(1)}%
             </div>
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Total Revenue</p>
-          <p className="text-2xl font-light text-white mt-1">{formatCurrency(totalRevenue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Net Revenue</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totalRevenue)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Receipt className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <Receipt className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Tax Collected</p>
-          <p className="text-2xl font-light text-white mt-1">{formatCurrency(totalTax)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Tax Collected</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(totalTax)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <ShoppingCart className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <ShoppingCart className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Total Orders</p>
-          <p className="text-2xl font-light text-white mt-1">{totalOrders.toLocaleString()}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Total Orders</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{totalOrders.toLocaleString()}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <TrendingUp className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <TrendingUp className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Avg Daily Revenue</p>
-          <p className="text-2xl font-light text-white mt-1">{formatCurrency(avgDailyRevenue)}</p>
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Avg Daily</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">{formatCurrency(avgDailyRevenue)}</p>
         </div>
 
-        <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
-            <Package className="w-5 h-5 text-emerald-500" />
+        <div className="bg-zinc-950 border border-zinc-900 p-3 lg:p-6 col-span-2 sm:col-span-1">
+          <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center">
+            <Package className="w-4 h-4 lg:w-5 lg:h-5 text-slate-400" />
           </div>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mt-4">Avg Order Value</p>
-          <p className="text-2xl font-light text-white mt-1">
+          <p className="text-[10px] lg:text-xs text-zinc-500 uppercase tracking-wider mt-2 lg:mt-4">Avg Order Value</p>
+          <p className="text-lg lg:text-2xl font-light text-white mt-0.5 lg:mt-1">
             {formatCurrency(totalOrders > 0 ? totalRevenue / totalOrders : 0)}
           </p>
         </div>
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
         <SalesChart data={salesData} metric="revenue" />
         <SalesChart data={salesData} metric="orders" />
       </div>
@@ -442,26 +511,26 @@ export default function SalesAnalyticsPage() {
       <TopProductsChart data={topProducts} />
 
       {/* Category Sales */}
-      <div className="bg-zinc-950 border border-zinc-900 p-6">
-        <h3 className="text-sm font-light text-white mb-6 tracking-wide">Sales by Category</h3>
+      <div className="bg-zinc-950 border border-zinc-900 p-4 lg:p-6">
+        <h3 className="text-xs lg:text-sm font-light text-white mb-4 lg:mb-6 tracking-wide">Sales by Category</h3>
         {categorySales.length === 0 ? (
-          <div className="text-center py-8 text-zinc-500 text-sm">No category data available</div>
+          <div className="text-center py-6 lg:py-8 text-zinc-500 text-xs lg:text-sm">No category data available</div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 lg:space-y-4">
             {categorySales.map((cat, index) => {
               const maxRevenue = categorySales[0]?.revenue || 1
               const percentage = (cat.revenue / maxRevenue) * 100
               return (
-                <div key={cat.category} className="flex items-center gap-4">
-                  <span className="w-6 text-sm text-zinc-500">{index + 1}</span>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-sm font-light text-white">{cat.category}</span>
-                      <span className="text-sm text-zinc-400 font-light">{formatCurrency(cat.revenue)}</span>
+                <div key={cat.category} className="flex items-center gap-2 lg:gap-4">
+                  <span className="w-5 lg:w-6 text-xs lg:text-sm text-zinc-500">{index + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1 gap-2">
+                      <span className="text-xs lg:text-sm font-light text-white truncate">{cat.category}</span>
+                      <span className="text-xs lg:text-sm text-zinc-400 font-light flex-shrink-0">{formatCurrency(cat.revenue)}</span>
                     </div>
                     <div className="h-1 bg-zinc-900 overflow-hidden">
                       <div
-                        className="h-full bg-emerald-500"
+                        className="h-full bg-slate-400"
                         style={{ width: `${percentage}%` }}
                       />
                     </div>
