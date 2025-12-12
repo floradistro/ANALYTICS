@@ -28,11 +28,7 @@ import {
   Settings,
   HelpCircle,
   Send,
-  Bot,
-  Globe,
   Loader2,
-  X,
-  Sparkles,
 } from 'lucide-react'
 
 interface CustomerData {
@@ -81,12 +77,8 @@ export default function ShipmentsPage() {
   const [selectedShipment, setSelectedShipment] = useState<TrackedShipment | null>(null)
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Agent activity streaming state
-  const [showAgentActivity, setShowAgentActivity] = useState(false)
-  const [agentLogs, setAgentLogs] = useState<Array<{ type: string; message: string; timestamp: Date }>>([])
-  const [agentStreaming, setAgentStreaming] = useState(false)
-  const [streamingTrackingNumber, setStreamingTrackingNumber] = useState<string | null>(null)
-  const agentLogsEndRef = useRef<HTMLDivElement>(null)
+  // Single shipment refresh state
+  const [refreshingTrackingNumber, setRefreshingTrackingNumber] = useState<string | null>(null)
 
   // Fetch shipping orders
   const fetchShippingOrders = useCallback(async () => {
@@ -177,6 +169,23 @@ export default function ShipmentsPage() {
     fetchShippingOrders()
   }, [fetchShippingOrders])
 
+  // Auto-fetch tracking when shipments load (only once per load)
+  const hasAutoFetched = useRef(false)
+  useEffect(() => {
+    if (shipments.length > 0 && !loading && !hasAutoFetched.current) {
+      const shipmentsWithTracking = shipments.filter(s => s.tracking_number && !s.trackingInfo)
+      if (shipmentsWithTracking.length > 0) {
+        hasAutoFetched.current = true
+        refreshTrackingInfo()
+      }
+    }
+  }, [shipments, loading, refreshTrackingInfo])
+
+  // Reset auto-fetch flag when date range changes
+  useEffect(() => {
+    hasAutoFetched.current = false
+  }, [dateRange])
+
   // Auto-refresh timer
   useEffect(() => {
     if (autoRefresh && shipments.length > 0) {
@@ -192,90 +201,38 @@ export default function ShipmentsPage() {
     }
   }, [autoRefresh, refreshInterval, shipments.length, refreshTrackingInfo])
 
-  // Auto-scroll agent logs
-  useEffect(() => {
-    agentLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [agentLogs])
-
-  // Stream tracking for a single package with live agent activity
-  const streamTrackingForPackage = useCallback(async (trackingNumber: string) => {
-    setShowAgentActivity(true)
-    setAgentStreaming(true)
-    setStreamingTrackingNumber(trackingNumber)
-    setAgentLogs([{ type: 'status', message: 'Initializing Claude agent...', timestamp: new Date() }])
+  // Refresh tracking for a single shipment
+  const refreshSingleShipment = useCallback(async (trackingNumber: string) => {
+    setRefreshingTrackingNumber(trackingNumber)
 
     try {
-      const response = await fetch('/api/usps/track/stream', {
+      const response = await fetch('/api/usps/track', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trackingNumber }),
+        body: JSON.stringify({ trackingNumbers: [trackingNumber.replace(/\s+/g, '')] }),
       })
 
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`)
       }
 
-      const reader = response.body?.getReader()
-      if (!reader) throw new Error('No reader available')
+      const results = await response.json()
 
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            const eventType = line.slice(7)
-            continue
+      if (Array.isArray(results) && results.length > 0) {
+        const result = results[0]
+        setShipments(prev => prev.map(s => {
+          if (s.tracking_number === trackingNumber) {
+            return { ...s, trackingInfo: result, isLoading: false }
           }
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6))
-              if (data.message) {
-                setAgentLogs(prev => [...prev, {
-                  type: data.tool || data.query ? 'tool' : 'status',
-                  message: data.message,
-                  timestamp: new Date()
-                }])
-              }
-              if (data.text) {
-                setAgentLogs(prev => [...prev, {
-                  type: 'text',
-                  message: data.text,
-                  timestamp: new Date()
-                }])
-              }
-              if (data.trackingNumber && data.status) {
-                // Got the result - update the shipment
-                setShipments(prev => prev.map(s => {
-                  if (s.tracking_number === trackingNumber) {
-                    return { ...s, trackingInfo: data as USPSTrackingResult, isLoading: false }
-                  }
-                  return s
-                }))
-                setLastRefresh(new Date())
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-        }
+          return s
+        }))
+        setLastRefresh(new Date())
       }
     } catch (error) {
-      setAgentLogs(prev => [...prev, {
-        type: 'error',
-        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date()
-      }])
+      console.error('Failed to refresh tracking:', error)
     }
 
-    setAgentStreaming(false)
+    setRefreshingTrackingNumber(null)
   }, [])
 
   // Don't auto-refresh - let users click to track manually on USPS.com
@@ -372,15 +329,6 @@ export default function ShipmentsPage() {
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
             Refresh Now
           </button>
-          {agentLogs.length > 0 && (
-            <button
-              onClick={() => setShowAgentActivity(true)}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-colors"
-            >
-              <Bot className="w-4 h-4" />
-              Agent Activity
-            </button>
-          )}
           <button
             onClick={() => setShowSettings(true)}
             className="p-2 text-zinc-500 hover:text-white hover:bg-zinc-900 transition-colors"
@@ -575,20 +523,20 @@ export default function ShipmentsPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            streamTrackingForPackage(shipment.tracking_number!)
+                            refreshSingleShipment(shipment.tracking_number!)
                           }}
-                          disabled={agentStreaming && streamingTrackingNumber === shipment.tracking_number}
-                          className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 disabled:opacity-50 transition-colors"
+                          disabled={refreshingTrackingNumber === shipment.tracking_number}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 text-xs bg-zinc-800 border border-zinc-700 text-zinc-300 hover:bg-zinc-700 disabled:opacity-50 transition-colors"
                         >
-                          {agentStreaming && streamingTrackingNumber === shipment.tracking_number ? (
+                          {refreshingTrackingNumber === shipment.tracking_number ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              Tracking...
+                              Loading...
                             </>
                           ) : (
                             <>
-                              <Bot className="w-3 h-3" />
-                              Track
+                              <RefreshCw className="w-3 h-3" />
+                              Refresh
                             </>
                           )}
                         </button>
@@ -630,78 +578,12 @@ export default function ShipmentsPage() {
               </div>
 
               <p className="text-xs text-zinc-500">
-                Tracking data is fetched directly from USPS.com - no API credentials required.
+                Tracking data is fetched via EasyPost API.
               </p>
             </div>
             <div className="p-6 border-t border-zinc-900 flex justify-end">
               <button
                 onClick={() => setShowSettings(false)}
-                className="px-4 py-2 bg-zinc-800 text-white text-sm hover:bg-zinc-700 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Agent Activity Panel */}
-      {showAgentActivity && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-          <div className="bg-zinc-950 border border-zinc-800 max-w-2xl w-full max-h-[80vh] flex flex-col">
-            <div className="p-4 border-b border-zinc-900 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-5 h-5 text-purple-400" />
-                  <span className="text-sm font-light text-white">Claude Agent Activity</span>
-                </div>
-                {agentStreaming && (
-                  <span className="flex items-center gap-1.5 px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 text-purple-400 text-xs">
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Live
-                  </span>
-                )}
-              </div>
-              <button
-                onClick={() => setShowAgentActivity(false)}
-                className="text-zinc-500 hover:text-white p-1"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {streamingTrackingNumber && (
-              <div className="px-4 py-2 bg-zinc-900/50 border-b border-zinc-800 text-xs text-zinc-400">
-                Tracking: <span className="text-white font-mono">{streamingTrackingNumber}</span>
-              </div>
-            )}
-
-            <div className="flex-1 overflow-auto p-4 space-y-2 font-mono text-xs">
-              {agentLogs.map((log, index) => (
-                <div
-                  key={index}
-                  className={`flex items-start gap-2 ${
-                    log.type === 'error' ? 'text-red-400' :
-                    log.type === 'tool' ? 'text-blue-400' :
-                    log.type === 'text' ? 'text-zinc-300' :
-                    'text-zinc-400'
-                  }`}
-                >
-                  <span className="text-zinc-600 shrink-0">
-                    {format(log.timestamp, 'HH:mm:ss')}
-                  </span>
-                  {log.type === 'tool' && <Globe className="w-3 h-3 mt-0.5 shrink-0" />}
-                  {log.type === 'status' && <Sparkles className="w-3 h-3 mt-0.5 shrink-0" />}
-                  {log.type === 'error' && <AlertTriangle className="w-3 h-3 mt-0.5 shrink-0" />}
-                  <span className="break-all">{log.message}</span>
-                </div>
-              ))}
-              <div ref={agentLogsEndRef} />
-            </div>
-
-            <div className="p-4 border-t border-zinc-900 flex justify-end">
-              <button
-                onClick={() => setShowAgentActivity(false)}
                 className="px-4 py-2 bg-zinc-800 text-white text-sm hover:bg-zinc-700 transition-colors"
               >
                 Close
@@ -733,21 +615,6 @@ export default function ShipmentsPage() {
             </div>
 
             <div className="p-6">
-              {/* Track with AI Button */}
-              {selectedShipment.tracking_number && (
-                <button
-                  onClick={() => {
-                    setSelectedShipment(null)
-                    streamTrackingForPackage(selectedShipment.tracking_number!)
-                  }}
-                  className="w-full mb-4 flex items-center justify-center gap-2 px-4 py-3 bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-colors"
-                >
-                  <Bot className="w-4 h-4" />
-                  <span>Track with AI Agent (Live View)</span>
-                  <Sparkles className="w-4 h-4" />
-                </button>
-              )}
-
               {/* Status Summary */}
               <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
                 <span

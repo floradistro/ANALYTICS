@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { supabase } from '@/lib/supabase'
 import { getDateRangeForQuery } from '@/lib/date-utils'
-import { getStateCentroid, normalizeState } from '@/lib/geocoding'
+import { getStateCentroid, getCityCoordinates, normalizeState, batchGeocodeAddresses } from '@/lib/geocoding'
 import { Loader2, Radio, Crosshair, Activity, Target, Zap, TrendingUp, AlertCircle } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
@@ -65,6 +65,7 @@ export default function MapDashboardPage() {
   const [stateData, setStateData] = useState<Map<string, { orders: number; revenue: number }>>(new Map())
   const [customerCount, setCustomerCount] = useState(0)
   const [shippingCount, setShippingCount] = useState(0)
+  const [geocodeProgress, setGeocodeProgress] = useState<{ completed: number; total: number } | null>(null)
 
   // Fetch data
   const fetchData = useCallback(async () => {
@@ -84,7 +85,7 @@ export default function MapDashboardPage() {
       while (true) {
         let query = supabase
           .from('orders')
-          .select('id, customer_id, shipping_city, shipping_state, total_amount, order_type, pickup_location_id, created_at')
+          .select('id, customer_id, shipping_address_line1, shipping_city, shipping_state, shipping_postal_code, total_amount, order_type, pickup_location_id, created_at')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')  // Only count paid orders
           .neq('status', 'cancelled')     // Exclude cancelled
@@ -111,14 +112,14 @@ export default function MapDashboardPage() {
       const orders = allOrders
       console.log('Fetched orders:', orders.length)
 
-      // Fetch ALL customers (no limit)
+      // Fetch ALL customers with full address data (no limit)
       let allCustomers: any[] = []
       page = 0
 
       while (true) {
         const { data: customers, error } = await supabase
           .from('customers')
-          .select('id, city, state, total_spent, total_orders')
+          .select('id, street_address, city, state, postal_code, total_spent, total_orders')
           .eq('vendor_id', vendorId)
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -184,52 +185,135 @@ export default function MapDashboardPage() {
         }
       }
 
-      // === LAYER 2: CUSTOMER HEATMAP (individual customers) ===
+      // === LAYER 2: CUSTOMER HEATMAP (individual customers with exact geocoding) ===
       const customerPoints: GeoPoint[] = []
 
-      // Hash function to create deterministic offset from city name
-      const hashCity = (city: string, state: string) => {
-        const str = `${city}-${state}`.toLowerCase()
-        let hash1 = 0, hash2 = 0
-        for (let i = 0; i < str.length; i++) {
-          hash1 = ((hash1 << 5) - hash1 + str.charCodeAt(i)) | 0
-          hash2 = ((hash2 << 3) + hash2 + str.charCodeAt(i * 2 % str.length)) | 0
-        }
-        return {
-          latOffset: (hash1 % 1000) / 1000 * 2 - 1, // -1 to 1 degree offset
-          lngOffset: (hash2 % 1000) / 1000 * 2 - 1
-        }
-      }
+      // Separate customers with full addresses from those with only city/state
+      const customersWithAddresses: Array<{
+        address: string; city: string; state: string; postalCode?: string; id: string;
+        total_spent: number; total_orders: number
+      }> = []
+      const customersWithCityOnly: typeof customers = []
 
-      // Plot each customer individually
       for (const customer of customers || []) {
         if (!customer.state) continue
         const state = normalizeState(customer.state)
         if (!state) continue
 
-        const stateCoords = getStateCentroid(state)
-        if (!stateCoords) continue
-
-        // Get offset based on city to spread customers out
-        const cityOffset = customer.city ? hashCity(customer.city, state) : { latOffset: 0, lngOffset: 0 }
-
-        // Add small random jitter so customers at same address don't stack
-        const jitterLat = (Math.random() - 0.5) * 0.1
-        const jitterLng = (Math.random() - 0.5) * 0.1
-
-        customerPoints.push({
-          lat: stateCoords.lat + cityOffset.latOffset * 0.8 + jitterLat,
-          lng: stateCoords.lng + cityOffset.lngOffset * 1.2 + jitterLng,
-          type: 'customer',
-          revenue: customer.total_spent || 0,
-          orders: customer.total_orders || 0,
-          customers: 1,
-          city: customer.city || undefined,
-          state,
-        })
+        if (customer.street_address && customer.city) {
+          customersWithAddresses.push({
+            id: customer.id,
+            address: customer.street_address,
+            city: customer.city,
+            state,
+            postalCode: customer.postal_code,
+            total_spent: customer.total_spent || 0,
+            total_orders: customer.total_orders || 0,
+          })
+        } else {
+          customersWithCityOnly.push({ ...customer, state })
+        }
       }
 
-      console.log('Customer points created:', customerPoints.length)
+      console.log('Customers with full addresses:', customersWithAddresses.length)
+      console.log('Customers with city only:', customersWithCityOnly.length)
+
+      // Create customer data map for lookup
+      const customerDataMap = new Map<string, { total_spent: number; total_orders: number; city: string; state: string }>()
+      for (const c of customersWithAddresses) {
+        customerDataMap.set(c.id, { total_spent: c.total_spent, total_orders: c.total_orders, city: c.city, state: c.state })
+      }
+
+      // Start batch geocoding in background (with progress updates)
+      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
+
+      if (customersWithAddresses.length > 0 && mapboxToken) {
+        setGeocodeProgress({ completed: 0, total: customersWithAddresses.length })
+
+        // Geocode asynchronously using Mapbox (fast parallel processing!)
+        batchGeocodeAddresses(
+          customersWithAddresses,
+          mapboxToken,
+          (completed, total, results) => {
+            setGeocodeProgress({ completed, total })
+
+            // Build customer points from geocoded results
+            const newCustomerPoints: GeoPoint[] = []
+
+            for (const [id, coords] of results) {
+              if (!coords) continue
+              const data = customerDataMap.get(id)
+              if (!data) continue
+
+              // Add very small jitter for exact addresses
+              const jitterLat = (Math.random() - 0.5) * 0.001
+              const jitterLng = (Math.random() - 0.5) * 0.001
+
+              newCustomerPoints.push({
+                lat: coords.lat + jitterLat,
+                lng: coords.lng + jitterLng,
+                type: 'customer',
+                revenue: data.total_spent,
+                orders: data.total_orders,
+                customers: 1,
+                city: data.city,
+                state: data.state,
+              })
+            }
+
+            // Add city-only customers
+            for (const customer of customersWithCityOnly) {
+              const coords = getCityCoordinates(customer.city, customer.state)
+              if (!coords) continue
+
+              const jitterLat = (Math.random() - 0.5) * 0.03
+              const jitterLng = (Math.random() - 0.5) * 0.03
+
+              newCustomerPoints.push({
+                lat: coords.lat + jitterLat,
+                lng: coords.lng + jitterLng,
+                type: 'customer',
+                revenue: customer.total_spent || 0,
+                orders: customer.total_orders || 0,
+                customers: 1,
+                city: customer.city || undefined,
+                state: customer.state,
+              })
+            }
+
+            // Update the layers with new customer points
+            setLayers(prev => ({ ...prev, customers: newCustomerPoints }))
+
+            // Clear progress when complete
+            if (completed === total) {
+              setGeocodeProgress(null)
+            }
+          }
+        )
+      } else {
+        // No addresses to geocode, just use city coordinates
+        for (const customer of customersWithCityOnly) {
+          const coords = getCityCoordinates(customer.city, customer.state)
+          if (!coords) continue
+
+          const jitterLat = (Math.random() - 0.5) * 0.03
+          const jitterLng = (Math.random() - 0.5) * 0.03
+
+          customerPoints.push({
+            lat: coords.lat + jitterLat,
+            lng: coords.lng + jitterLng,
+            type: 'customer',
+            revenue: customer.total_spent || 0,
+            orders: customer.total_orders || 0,
+            customers: 1,
+            city: customer.city || undefined,
+            state: customer.state,
+          })
+        }
+      }
+
+      const totalCustomers = customersWithAddresses.length + customersWithCityOnly.length
+      console.log('Total customer points:', totalCustomers)
 
       // === LAYER 3: SHIPPING HEATMAP (orders shipped to customers) ===
       const shippingStateAgg = new Map<string, { orders: number; revenue: number }>()
@@ -304,7 +388,7 @@ export default function MapDashboardPage() {
       const totalStoreRevenue = Array.from(storeOrderAgg.values()).reduce((sum, d) => sum + d.revenue, 0)
       const totalShippingOrders = Array.from(shippingStateAgg.values()).reduce((sum, d) => sum + d.orders, 0)
       const totalShippingRevenue = Array.from(shippingStateAgg.values()).reduce((sum, d) => sum + d.revenue, 0)
-      const totalCustomers = customerPoints.length
+      const customerTotal = customersWithAddresses.length + customersWithCityOnly.length
 
       const totalOrders = totalStoreOrders + totalShippingOrders
       const totalRevenue = totalStoreRevenue + totalShippingRevenue
@@ -314,13 +398,14 @@ export default function MapDashboardPage() {
         rawOrders: orders?.length,
         storeOrders: totalStoreOrders,
         shippingOrders: totalShippingOrders,
-        customersWithState: totalCustomers,
+        customersWithState: customerTotal,
         totalRevenue: Math.round(totalRevenue),
       })
 
+      // Set initial layers (customers will be updated as geocoding progresses)
       setLayers({ stores: storePoints, customers: customerPoints, shipping: shippingPoints })
       setStateData(combinedStateAgg)
-      setCustomerCount(totalCustomers)
+      setCustomerCount(customerTotal)
       setShippingCount(totalShippingOrders)
       setStats({
         totalOrders,
@@ -411,6 +496,24 @@ export default function MapDashboardPage() {
               SECTOR: CONUS • GRID: ACTIVE • STATUS: MONITORING
             </span>
           </div>
+
+          {/* Geocoding progress indicator */}
+          {geocodeProgress && (
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 px-4 py-2 bg-black/80 backdrop-blur-sm border border-purple-500/50 z-30">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-pulse" />
+                <span className="text-[10px] font-mono text-purple-400 uppercase tracking-wider">
+                  Geocoding addresses: {geocodeProgress.completed}/{geocodeProgress.total}
+                </span>
+                <div className="w-20 h-1 bg-zinc-800 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-purple-500 transition-all duration-300"
+                    style={{ width: `${(geocodeProgress.completed / geocodeProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Stats panel */}

@@ -154,7 +154,7 @@ export default function SalesAnalyticsPage() {
     const { start, end } = getDateRangeForQuery()
 
     try {
-      // Fetch all order IDs with pagination
+      // Fetch all PAID order IDs with pagination (for top products)
       const pageSize = 1000
       let allOrderIds: string[] = []
       let page = 0
@@ -165,6 +165,8 @@ export default function SalesAnalyticsPage() {
           .from('orders')
           .select('id')
           .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')  // Only count paid orders
+          .neq('status', 'cancelled')     // Exclude cancelled
           .gte('created_at', start)
           .lte('created_at', end)
 
@@ -247,7 +249,7 @@ export default function SalesAnalyticsPage() {
     const { start, end } = getDateRangeForQuery()
 
     try {
-      // Fetch all order IDs with pagination
+      // Fetch all PAID order IDs with pagination (for category sales)
       const pageSize = 1000
       let allOrderIds: string[] = []
       let page = 0
@@ -258,6 +260,8 @@ export default function SalesAnalyticsPage() {
           .from('orders')
           .select('id')
           .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')  // Only count paid orders
+          .neq('status', 'cancelled')     // Exclude cancelled
           .gte('created_at', start)
           .lte('created_at', end)
 

@@ -197,11 +197,13 @@ export default function DashboardOverview() {
 
       const customers = allCustomers
 
-      // Fetch recent orders
+      // Fetch recent PAID orders (exclude failed/cancelled)
       let recentQuery = supabase
         .from('orders')
         .select('*')
         .eq('vendor_id', vendorId)
+        .eq('payment_status', 'paid')
+        .neq('status', 'cancelled')
         .order('created_at', { ascending: false })
         .limit(10)
 

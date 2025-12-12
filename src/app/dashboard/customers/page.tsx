@@ -152,6 +152,8 @@ export default function CustomersPage() {
           .from('orders')
           .select('customer_id, total_amount')
           .eq('vendor_id', vendorId)
+          .eq('payment_status', 'paid')  // Only count paid orders for LTV
+          .neq('status', 'cancelled')     // Exclude cancelled
           .not('customer_id', 'is', null)
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
