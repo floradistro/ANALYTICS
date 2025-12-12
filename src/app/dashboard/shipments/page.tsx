@@ -93,7 +93,7 @@ export default function ShipmentsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [selectedShipment, setSelectedShipment] = useState<TrackedShipment | null>(null)
-  const [isLive, setIsLive] = useState(false)
+  const [isLive] = useState(false) // Realtime disabled - use Refresh button
   const [registeringNumbers, setRegisteringNumbers] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
 
@@ -144,13 +144,27 @@ export default function ShipmentsPage() {
 
   // Fetch tracking data from database
   const fetchTrackingData = useCallback(async () => {
-    if (!vendorId) return
+    if (!vendorId) {
+      console.log('No vendorId yet')
+      return
+    }
+
+    console.log('Fetching tracking data for vendor:', vendorId)
 
     try {
+      // First check all data in table (for debugging)
+      const { data: allData } = await supabase
+        .from('shipment_tracking')
+        .select('tracking_number, vendor_id, status')
+        .limit(5)
+      console.log('All tracking data in DB:', allData)
+
       const { data, error } = await supabase
         .from('shipment_tracking')
         .select('*')
         .eq('vendor_id', vendorId)
+
+      console.log('Tracking data for this vendor:', data, 'Error:', error)
 
       if (error) {
         // Table might not exist yet
@@ -275,51 +289,9 @@ export default function ShipmentsPage() {
   //   }
   // }, [loading, shipments.length, registerUnregisteredTrackers])
 
-  // Set up real-time subscription for tracking updates
-  useEffect(() => {
-    if (!vendorId) return
-
-    const channel = supabase
-      .channel('tracking-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'shipment_tracking',
-          filter: `vendor_id=eq.${vendorId}`,
-        },
-        (payload) => {
-          console.log('Real-time tracking update:', payload)
-          const newData = payload.new as any
-          if (newData?.tracking_number) {
-            setTrackingMap(prev => {
-              const next = new Map(prev)
-              next.set(newData.tracking_number, {
-                tracking_number: newData.tracking_number,
-                status: newData.status,
-                status_category: newData.status_category,
-                status_description: newData.status_description,
-                estimated_delivery: newData.estimated_delivery,
-                last_location: newData.last_location,
-                last_update: newData.last_update,
-                carrier: newData.carrier,
-                events: newData.events || [],
-              })
-              return next
-            })
-            setLastRefresh(new Date())
-          }
-        }
-      )
-      .subscribe((status) => {
-        setIsLive(status === 'SUBSCRIBED')
-      })
-
-    return () => {
-      supabase.removeChannel(channel)
-    }
-  }, [vendorId])
+  // Real-time subscription disabled for now - enable in Supabase dashboard:
+  // Database > Replication > Enable for shipment_tracking table
+  // For now, use manual Refresh button to get updates
 
   const getStatusIcon = (status?: string) => {
     switch (status) {

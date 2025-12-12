@@ -13,9 +13,63 @@ const corsHeaders = {
 
 // Create Supabase client with service role for inserts
 const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  (process.env.NEXT_PUBLIC_SUPABASE_URL || '').trim(),
+  (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').trim()
 )
+
+// Detect channel from referrer
+function detectChannel(referrer: string | null, utmSource?: string, utmMedium?: string): string {
+  if (utmMedium === 'cpc' || utmMedium === 'ppc' || utmMedium === 'paid') return 'paid'
+  if (utmMedium === 'email') return 'email'
+  if (utmMedium === 'social') return 'social'
+  if (utmSource) {
+    const source = utmSource.toLowerCase()
+    if (['facebook', 'instagram', 'tiktok', 'twitter', 'x', 'linkedin', 'pinterest', 'snapchat', 'youtube'].includes(source)) return 'social'
+    if (['google', 'bing', 'yahoo', 'duckduckgo'].includes(source)) return 'search'
+  }
+
+  if (!referrer) return 'direct'
+
+  const ref = referrer.toLowerCase()
+
+  // Social
+  if (/facebook\.com|fb\.com|instagram\.com|tiktok\.com|twitter\.com|x\.com|linkedin\.com|pinterest\.com|snapchat\.com|youtube\.com|reddit\.com/.test(ref)) {
+    return 'social'
+  }
+
+  // Search engines
+  if (/google\.|bing\.|yahoo\.|duckduckgo\.|baidu\.|yandex\./.test(ref)) {
+    return 'organic'
+  }
+
+  // Email providers
+  if (/mail\.google\.com|outlook\.|mail\.yahoo\.com|mailchimp\.com|klaviyo\.com/.test(ref)) {
+    return 'email'
+  }
+
+  return 'referral'
+}
+
+// Parse browser and OS from user agent
+function parseUserAgent(ua: string): { browser: string; os: string } {
+  const uaLower = ua.toLowerCase()
+
+  let browser = 'unknown'
+  if (uaLower.includes('chrome') && !uaLower.includes('edg')) browser = 'Chrome'
+  else if (uaLower.includes('safari') && !uaLower.includes('chrome')) browser = 'Safari'
+  else if (uaLower.includes('firefox')) browser = 'Firefox'
+  else if (uaLower.includes('edg')) browser = 'Edge'
+  else if (uaLower.includes('opera') || uaLower.includes('opr')) browser = 'Opera'
+
+  let os = 'unknown'
+  if (uaLower.includes('windows')) os = 'Windows'
+  else if (uaLower.includes('mac os') || uaLower.includes('macos')) os = 'macOS'
+  else if (uaLower.includes('iphone') || uaLower.includes('ipad')) os = 'iOS'
+  else if (uaLower.includes('android')) os = 'Android'
+  else if (uaLower.includes('linux')) os = 'Linux'
+
+  return { browser, os }
+}
 
 // Handle CORS preflight
 export async function OPTIONS() {
@@ -25,7 +79,23 @@ export async function OPTIONS() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { vendor_id, page_url, referrer, visitor_id } = body
+    const {
+      vendor_id,
+      page_url,
+      referrer,
+      visitor_id,
+      // UTM parameters
+      utm_source,
+      utm_medium,
+      utm_campaign,
+      utm_content,
+      utm_term,
+      // Screen info
+      screen_width,
+      screen_height,
+      // Return visitor flag
+      is_returning,
+    } = body
 
     if (!vendor_id) {
       return NextResponse.json({ error: 'vendor_id required' }, { status: 400, headers: corsHeaders })
@@ -41,6 +111,10 @@ export async function POST(request: NextRequest) {
     // Get user agent for device detection
     const userAgent = request.headers.get('user-agent') || ''
     const deviceType = detectDeviceType(userAgent)
+    const { browser, os } = parseUserAgent(userAgent)
+
+    // Detect channel from referrer and UTM
+    const channel = detectChannel(referrer, utm_source, utm_medium)
 
     // Generate unique session ID
     const sessionId = generateSessionId()
@@ -61,6 +135,18 @@ export async function POST(request: NextRequest) {
         referrer,
         user_agent: userAgent.substring(0, 500),
         device_type: deviceType,
+        // New fields
+        utm_source,
+        utm_medium,
+        utm_campaign,
+        utm_content,
+        utm_term,
+        channel,
+        browser,
+        os,
+        screen_width,
+        screen_height,
+        is_returning: is_returning || false,
       }, {
         onConflict: 'vendor_id,session_id'
       })
@@ -72,7 +158,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      geo: { latitude, longitude, city, region, country }
+      geo: { latitude, longitude, city, region, country },
+      channel,
     }, { headers: corsHeaders })
   } catch (err) {
     console.error('Track API error:', err)
