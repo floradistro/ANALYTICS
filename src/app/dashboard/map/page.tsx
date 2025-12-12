@@ -474,6 +474,59 @@ export default function MapDashboardPage() {
     fetchData()
   }, [fetchData])
 
+  // Real-time subscription for live traffic updates
+  useEffect(() => {
+    if (!vendorId) return
+
+    const channel = supabase
+      .channel('live-visitors')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'website_visitors',
+          filter: `vendor_id=eq.${vendorId}`,
+        },
+        (payload) => {
+          const visitor = payload.new as {
+            latitude: number | null
+            longitude: number | null
+            city: string | null
+            region: string | null
+            device_type: string | null
+            created_at: string
+          }
+
+          // Only add if we have coordinates
+          if (visitor.latitude && visitor.longitude) {
+            const newPoint: GeoPoint = {
+              lat: visitor.latitude,
+              lng: visitor.longitude,
+              type: 'traffic',
+              revenue: 0,
+              orders: 0,
+              city: visitor.city || undefined,
+              state: visitor.region || undefined,
+              device: visitor.device_type || undefined,
+              timestamp: visitor.created_at,
+            }
+
+            setLayers((prev) => ({
+              ...prev,
+              traffic: [newPoint, ...prev.traffic],
+            }))
+            setTrafficCount((prev) => prev + 1)
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [vendorId])
+
   const formatCurrency = (n: number) => '$' + Math.round(n).toLocaleString()
 
   return (

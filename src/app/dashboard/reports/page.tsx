@@ -111,6 +111,16 @@ export default function FinancialReportsPage() {
   const [taxByLocation, setTaxByLocation] = useState<TaxByLocation[]>([])
   const [taxByState, setTaxByState] = useState<TaxByState[]>([])
   const [discountBreakdown, setDiscountBreakdown] = useState<DiscountBreakdown[]>([])
+  const [taxReportMonth, setTaxReportMonth] = useState<string>('all') // 'all' or 'YYYY-MM'
+
+  // Generate list of months for the tax report filter (last 24 months)
+  const availableMonths = Array.from({ length: 24 }, (_, i) => {
+    const date = subMonths(new Date(), i)
+    return {
+      value: format(date, 'yyyy-MM'),
+      label: format(date, 'MMMM yyyy'),
+    }
+  })
 
   const fetchMonthlyReports = useCallback(async () => {
     if (!vendorId) return
@@ -336,6 +346,15 @@ export default function FinancialReportsPage() {
         })
       }
 
+      // Calculate date range based on selected month
+      let startDate: Date | null = null
+      let endDate: Date | null = null
+      if (taxReportMonth !== 'all') {
+        const [year, month] = taxReportMonth.split('-').map(Number)
+        startDate = new Date(year, month - 1, 1)
+        endDate = endOfMonth(startDate)
+      }
+
       // Fetch all paid orders with location and tax info
       const pageSize = 1000
       let allOrders: any[] = []
@@ -343,13 +362,23 @@ export default function FinancialReportsPage() {
       let hasMore = true
 
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('orders')
           .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
-          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        // Apply date filter if a specific month is selected
+        if (startDate && endDate) {
+          query = query
+            .gte('created_at', startDate.toISOString())
+            .lte('created_at', endDate.toISOString())
+        }
+
+        query = query.range(page * pageSize, (page + 1) * pageSize - 1)
+
+        const { data, error } = await query
 
         if (error) throw error
         if (data && data.length > 0) {
@@ -416,25 +445,44 @@ export default function FinancialReportsPage() {
     } catch (error) {
       console.error('Failed to fetch tax by location:', error)
     }
-  }, [vendorId])
+  }, [vendorId, taxReportMonth])
 
   const fetchDiscountBreakdown = useCallback(async () => {
     if (!vendorId) return
 
     try {
+      // Calculate date range based on selected month
+      let startDate: Date | null = null
+      let endDate: Date | null = null
+      if (taxReportMonth !== 'all') {
+        const [year, month] = taxReportMonth.split('-').map(Number)
+        startDate = new Date(year, month - 1, 1)
+        endDate = endOfMonth(startDate)
+      }
+
       const pageSize = 1000
       let allOrders: any[] = []
       let page = 0
       let hasMore = true
 
       while (hasMore) {
-        const { data, error } = await supabase
+        let query = supabase
           .from('orders')
           .select('discount_amount, metadata, affiliate_discount_amount')
           .eq('vendor_id', vendorId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
-          .range(page * pageSize, (page + 1) * pageSize - 1)
+
+        // Apply date filter if a specific month is selected
+        if (startDate && endDate) {
+          query = query
+            .gte('created_at', startDate.toISOString())
+            .lte('created_at', endDate.toISOString())
+        }
+
+        query = query.range(page * pageSize, (page + 1) * pageSize - 1)
+
+        const { data, error } = await query
 
         if (error) throw error
         if (data && data.length > 0) {
@@ -475,7 +523,7 @@ export default function FinancialReportsPage() {
     } catch (error) {
       console.error('Failed to fetch discount breakdown:', error)
     }
-  }, [vendorId])
+  }, [vendorId, taxReportMonth])
 
   useEffect(() => {
     if (vendorId) {
@@ -774,12 +822,34 @@ export default function FinancialReportsPage() {
       </div>
 
       {/* Tax Reports Section */}
+      <div className="bg-zinc-950 border border-zinc-900 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-sm font-light text-white tracking-wide">Tax & Discount Reports</h2>
+          <p className="text-xs text-zinc-500 mt-1">Filter by month for tax filing</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-zinc-500" />
+          <select
+            value={taxReportMonth}
+            onChange={(e) => setTaxReportMonth(e.target.value)}
+            className="px-3 py-2 bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:border-zinc-700 text-sm min-w-[180px]"
+          >
+            <option value="all">All Time</option>
+            {availableMonths.map((m) => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Tax by Location */}
         <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
           <div className="px-6 py-4 border-b border-zinc-900">
             <h3 className="text-sm font-light text-white tracking-wide">Tax by Location</h3>
-            <p className="text-xs text-zinc-500 mt-1">Tax collected at each retail location (all time)</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+            </p>
           </div>
           <div className="overflow-x-auto">
             {taxByLocation.length === 0 ? (
@@ -833,7 +903,9 @@ export default function FinancialReportsPage() {
         <div className="bg-zinc-950 border border-zinc-900 overflow-hidden">
           <div className="px-6 py-4 border-b border-zinc-900">
             <h3 className="text-sm font-light text-white tracking-wide">Tax by State</h3>
-            <p className="text-xs text-zinc-500 mt-1">Summary for state tax filings (all time)</p>
+            <p className="text-xs text-zinc-500 mt-1">
+              {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+            </p>
           </div>
           <div className="overflow-x-auto">
             {taxByState.length === 0 ? (
@@ -881,8 +953,10 @@ export default function FinancialReportsPage() {
       {/* Discount Breakdown */}
       {discountBreakdown.length > 0 && (
         <div className="bg-zinc-950 border border-zinc-900 p-6">
-          <h3 className="text-sm font-light text-white mb-6 tracking-wide">Discount Breakdown</h3>
-          <p className="text-xs text-zinc-500 mb-4">Discounts by source (all time)</p>
+          <h3 className="text-sm font-light text-white mb-2 tracking-wide">Discount Breakdown</h3>
+          <p className="text-xs text-zinc-500 mb-4">
+            {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+          </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {discountBreakdown.map((discount) => {
               const totalDiscounts = discountBreakdown.reduce((sum, d) => sum + d.amount, 0)

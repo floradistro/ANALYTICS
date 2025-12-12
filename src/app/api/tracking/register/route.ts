@@ -54,7 +54,10 @@ export async function POST(request: NextRequest) {
     const client = new EasyPost(apiKey)
     const results = []
 
-    for (const trackingNumber of trackingNumbers) {
+    // Limit to 5 at a time to avoid rate limits
+    const limitedTrackingNumbers = trackingNumbers.slice(0, 5)
+
+    for (const trackingNumber of limitedTrackingNumbers) {
       const cleanTrackingNumber = trackingNumber.replace(/\s+/g, '')
 
       // Skip invalid tracking numbers
@@ -83,6 +86,11 @@ export async function POST(request: NextRequest) {
             message: 'Tracker already exists',
           })
           continue
+        }
+
+        // Add delay between API calls to avoid rate limiting
+        if (results.length > 0) {
+          await new Promise(r => setTimeout(r, 1000)) // 1 second delay
         }
 
         // Create tracker with EasyPost
@@ -140,6 +148,23 @@ export async function POST(request: NextRequest) {
 
       } catch (error: any) {
         console.error(`Error registering ${trackingNumber}:`, error)
+
+        // Stop immediately on rate limit - don't try more
+        if (error?.code === 'RATE_LIMITED' || error?.statusCode === 429 ||
+            error?.message?.includes('rate-limited') || error?.message?.includes('rate limit')) {
+          results.push({
+            trackingNumber: cleanTrackingNumber,
+            status: 'rate_limited',
+            error: 'Rate limited - try again later',
+          })
+          // Return what we have so far
+          return NextResponse.json({
+            results,
+            rateLimited: true,
+            message: 'Rate limited by EasyPost. Wait a few minutes before trying again.'
+          })
+        }
+
         results.push({
           trackingNumber: cleanTrackingNumber,
           status: 'error',

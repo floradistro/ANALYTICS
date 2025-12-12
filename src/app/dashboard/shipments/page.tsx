@@ -9,6 +9,7 @@ import {
   getStatusColor,
   getStatusDisplayText,
   formatEventTimestamp,
+  type TrackingStatus,
 } from '@/lib/usps'
 import { format } from 'date-fns'
 import {
@@ -70,6 +71,14 @@ function getCustomer(customers: CustomerData | CustomerData[] | null | undefined
   if (!customers) return null
   if (Array.isArray(customers)) return customers[0] || null
   return customers
+}
+
+// Validate USPS tracking number format (20-22 digits)
+function isValidUSPSTrackingNumber(trackingNumber: string | null | undefined): boolean {
+  if (!trackingNumber) return false
+  const clean = trackingNumber.replace(/\s+/g, '')
+  // Must be 20-22 digits
+  return /^\d{20,22}$/.test(clean)
 }
 
 export default function ShipmentsPage() {
@@ -257,13 +266,14 @@ export default function ShipmentsPage() {
     fetchTrackingData()
   }, [fetchShippingOrders, fetchTrackingData])
 
-  // Register unregistered trackers after initial load
-  useEffect(() => {
-    if (!loading && shipments.length > 0 && !hasInitialized.current) {
-      hasInitialized.current = true
-      registerUnregisteredTrackers()
-    }
-  }, [loading, shipments.length, registerUnregisteredTrackers])
+  // Don't auto-register on page load - let users click "Track" manually
+  // This prevents rate limiting from EasyPost
+  // useEffect(() => {
+  //   if (!loading && shipments.length > 0 && !hasInitialized.current) {
+  //     hasInitialized.current = true
+  //     registerUnregisteredTrackers()
+  //   }
+  // }, [loading, shipments.length, registerUnregisteredTrackers])
 
   // Set up real-time subscription for tracking updates
   useEffect(() => {
@@ -400,10 +410,7 @@ export default function ShipmentsPage() {
             </span>
           )}
           <button
-            onClick={() => {
-              fetchTrackingData()
-              registerUnregisteredTrackers()
-            }}
+            onClick={() => fetchTrackingData()}
             disabled={isRefreshing}
             className="flex items-center gap-2 px-3 py-2 text-sm bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 disabled:opacity-50 transition-colors"
           >
@@ -574,11 +581,11 @@ export default function ShipmentsPage() {
                       ) : (
                         <span
                           className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-light border ${getStatusColor(
-                            (shipment.trackingData?.status || 'unknown') as 'unknown' | 'pre_transit' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'alert'
+                            (shipment.trackingData?.status || 'unknown') as TrackingStatus
                           )}`}
                         >
                           {getStatusIcon(shipment.trackingData?.status)}
-                          {getStatusDisplayText((shipment.trackingData?.status || 'unknown') as 'unknown' | 'pre_transit' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'alert')}
+                          {getStatusDisplayText((shipment.trackingData?.status || 'unknown') as TrackingStatus)}
                         </span>
                       )}
                     </td>
@@ -623,7 +630,7 @@ export default function ShipmentsPage() {
                       {shipment.trackingData?.estimated_delivery || '-'}
                     </td>
                     <td className="px-4 py-4 text-right">
-                      {shipment.tracking_number && !shipment.trackingData ? (
+                      {shipment.tracking_number && isValidUSPSTrackingNumber(shipment.tracking_number) && !shipment.trackingData ? (
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
@@ -644,8 +651,10 @@ export default function ShipmentsPage() {
                             </>
                           )}
                         </button>
-                      ) : shipment.tracking_number ? (
+                      ) : shipment.tracking_number && shipment.trackingData ? (
                         <span className="text-xs text-zinc-600">Auto-updating</span>
+                      ) : shipment.tracking_number && !isValidUSPSTrackingNumber(shipment.tracking_number) ? (
+                        <span className="text-xs text-zinc-500">Invalid #</span>
                       ) : (
                         <span className="text-xs text-zinc-600">-</span>
                       )}
@@ -730,7 +739,7 @@ export default function ShipmentsPage() {
               <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
                 <span
                   className={`inline-flex items-center gap-2 px-3 py-2 text-sm border ${getStatusColor(
-                    selectedShipment.trackingData?.status || 'unknown'
+                    (selectedShipment.trackingData?.status || 'unknown') as TrackingStatus
                   )}`}
                 >
                   {getStatusIcon(selectedShipment.trackingData?.status)}
