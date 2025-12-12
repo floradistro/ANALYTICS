@@ -390,23 +390,24 @@ export default function FinancialReportsPage() {
         page++
       }
 
-      // Aggregate by location
-      const byLocation = new Map<string, { orders: number; subtotal: number; tax: number }>()
+      // Aggregate by location (retail stores) and by state (for e-commerce)
+      const byLocation = new Map<string, { orders: number; subtotal: number; tax: number; isEcommerce: boolean; state: string }>()
       const byState = new Map<string, { orders: number; subtotal: number; tax: number }>()
 
       for (const order of allOrders) {
-        const locId = order.pickup_location_id || 'ecommerce'
-        const locInfo = locationMap.get(locId)
+        const isEcommerce = !order.pickup_location_id
+        const locInfo = order.pickup_location_id ? locationMap.get(order.pickup_location_id) : null
         const state = locInfo?.state || order.shipping_state || 'Unknown'
 
-        // By location
-        const locData = byLocation.get(locId) || { orders: 0, subtotal: 0, tax: 0 }
+        // By location - for e-commerce, group by destination state
+        const locKey = isEcommerce ? `ecommerce_${state}` : order.pickup_location_id
+        const locData = byLocation.get(locKey) || { orders: 0, subtotal: 0, tax: 0, isEcommerce, state }
         locData.orders++
         locData.subtotal += parseFloat(order.subtotal || 0)
         locData.tax += parseFloat(order.tax_amount || 0)
-        byLocation.set(locId, locData)
+        byLocation.set(locKey, locData)
 
-        // By state
+        // By state (for state-level filing summary)
         const stateData = byState.get(state) || { orders: 0, subtotal: 0, tax: 0 }
         stateData.orders++
         stateData.subtotal += parseFloat(order.subtotal || 0)
@@ -414,14 +415,17 @@ export default function FinancialReportsPage() {
         byState.set(state, stateData)
       }
 
-      // Convert to arrays
+      // Convert to arrays - separate retail and e-commerce
       const taxByLocationData: TaxByLocation[] = Array.from(byLocation.entries())
         .map(([locId, data]) => {
           const locInfo = locationMap.get(locId)
+          const isEcommerce = data.isEcommerce
           return {
             locationId: locId,
-            locationName: locInfo?.name || (locId === 'ecommerce' ? 'E-Commerce (Shipping)' : 'Unknown'),
-            state: locInfo?.state || 'Various',
+            locationName: isEcommerce
+              ? `E-Commerce → ${data.state}`
+              : (locInfo?.name || 'Unknown'),
+            state: data.state,
             configuredRate: locInfo?.configuredRate || 0,
             orders: data.orders,
             subtotal: data.subtotal,
@@ -429,7 +433,13 @@ export default function FinancialReportsPage() {
             effectiveRate: data.subtotal > 0 ? (data.tax / data.subtotal) * 100 : 0,
           }
         })
-        .sort((a, b) => b.taxCollected - a.taxCollected)
+        // Sort: retail stores first (by tax), then e-commerce (by tax)
+        .sort((a, b) => {
+          const aIsEcom = a.locationId.startsWith('ecommerce_')
+          const bIsEcom = b.locationId.startsWith('ecommerce_')
+          if (aIsEcom !== bIsEcom) return aIsEcom ? 1 : -1
+          return b.taxCollected - a.taxCollected
+        })
 
       const taxByStateData: TaxByState[] = Array.from(byState.entries())
         .map(([state, data]) => ({
