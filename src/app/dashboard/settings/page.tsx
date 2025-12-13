@@ -5,7 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useEmailSettingsStore } from '@/stores/email-settings.store'
 import { useUsersManagementStore, ROLE_LABELS, type TeamUser } from '@/stores/users-management.store'
 import { useSuppliersManagementStore, type Supplier } from '@/stores/suppliers-management.store'
-import { useRegistersManagementStore, type Register, type TerminalConfig } from '@/stores/registers-management.store'
+import { useRegistersManagementStore, type Register, type PaymentProcessor } from '@/stores/registers-management.store'
 import { supabase } from '@/lib/supabase'
 import {
   Store,

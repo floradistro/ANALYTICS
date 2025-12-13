@@ -447,12 +447,12 @@ export default function CustomersPage() {
                       <p className="text-xs lg:text-sm text-zinc-500 font-light">{customer.phone || '-'}</p>
                     </td>
                     <td className="px-3 lg:px-6 py-2.5 lg:py-4">
-                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light capitalize ${getTierBadge(customer.loyalty_tier)}`}>
-                        {customer.loyalty_tier}
+                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light capitalize ${getTierBadge(customer.loyalty_tier || 'bronze')}`}>
+                        {customer.loyalty_tier || 'bronze'}
                       </span>
                     </td>
                     <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-300 font-light hidden sm:table-cell">
-                      {customer.loyalty_points.toLocaleString()}
+                      {(customer.loyalty_points || 0).toLocaleString()}
                     </td>
                     <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-300 font-light">
                       {customer.order_count || 0}
