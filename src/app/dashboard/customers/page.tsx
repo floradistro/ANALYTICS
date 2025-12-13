@@ -461,7 +461,7 @@ export default function CustomersPage() {
                       {formatCurrency(customer.total_spent || 0)}
                     </td>
                     <td className="px-3 lg:px-6 py-2.5 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light hidden lg:table-cell whitespace-nowrap">
-                      {format(new Date(customer.created_at), 'MMM d, yyyy')}
+                      {customer.created_at ? format(new Date(customer.created_at), 'MMM d, yyyy') : '-'}
                     </td>
                   </tr>
                 ))

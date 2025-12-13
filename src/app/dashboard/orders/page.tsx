@@ -173,7 +173,7 @@ export default function OrdersPage() {
           o.subtotal,
           o.tax_amount,
           o.total_amount,
-          format(new Date(o.created_at), 'yyyy-MM-dd HH:mm'),
+          o.created_at ? format(new Date(o.created_at), 'yyyy-MM-dd HH:mm') : '',
         ].join(',')
       ),
     ].join('\n')
@@ -311,23 +311,23 @@ export default function OrdersPage() {
                         : <span className="text-zinc-600">Guest</span>}
                     </td>
                     <td className="px-4 py-3 text-sm text-zinc-400 capitalize">
-                      {order.order_type.replace('_', ' ')}
+                      {(order.order_type || '').replace('_', ' ')}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getStatusBadge(order.status)}`}>
-                        {order.status}
+                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getStatusBadge(order.status || 'pending')}`}>
+                        {order.status || 'pending'}
                       </span>
                     </td>
                     <td className="px-4 py-3 hidden md:table-cell">
-                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getPaymentBadge(order.payment_status)}`}>
-                        {order.payment_status}
+                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getPaymentBadge(order.payment_status || 'pending')}`}>
+                        {order.payment_status || 'pending'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-white tabular-nums">
-                      {formatCurrency(order.total_amount)}
+                      {formatCurrency(order.total_amount || 0)}
                     </td>
                     <td className="px-4 py-3 text-sm text-zinc-500 hidden lg:table-cell whitespace-nowrap">
-                      {format(new Date(order.created_at), 'MMM d, h:mm a')}
+                      {order.created_at ? format(new Date(order.created_at), 'MMM d, h:mm a') : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <button

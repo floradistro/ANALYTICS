@@ -15602,11 +15602,7 @@ export const Constants = {
 // CUSTOM HELPER TYPES
 // =============================================================================
 
-// Helper types for easier access
-export type Tables<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Row']
-export type InsertTables<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Insert']
-export type UpdateTables<T extends keyof Database['public']['Tables']> = Database['public']['Tables'][T]['Update']
-
+// Type aliases using the generated Tables type
 export type Order = Tables<'orders'>
 export type OrderItem = Tables<'order_items'>
 export type Customer = Tables<'customers'>

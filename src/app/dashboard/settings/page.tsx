@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useEmailSettingsStore } from '@/stores/email-settings.store'
+import type { TemplateSlug } from '@/services/email.service'
 import { useUsersManagementStore, ROLE_LABELS, type TeamUser } from '@/stores/users-management.store'
 import { useSuppliersManagementStore, type Supplier } from '@/stores/suppliers-management.store'
 import { useRegistersManagementStore, type Register, type PaymentProcessor } from '@/stores/registers-management.store'
@@ -1063,6 +1064,8 @@ function RegistersSettings({
     )
   }
 
+  if (!selectedRegister) return null
+
   return (
     <div className="space-y-6">
       <SectionHeader title={selectedRegister.register_name} description={`${selectedRegister.location?.name || 'Unknown'} • ${selectedRegister.register_number}`} action={<div className="flex items-center gap-2"><button onClick={handleDeleteRegister} className="px-3 py-2 text-sm text-red-400 hover:text-red-300">Delete</button><button onClick={() => { setSelectedRegister(null); resetForms() }} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Back</button></div>} />
@@ -1392,7 +1395,7 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
     }
     setSendingTemplateTest(templateSlug)
     try {
-      const success = await sendTestEmail(vendorId, testEmail, templateSlug)
+      const success = await sendTestEmail(vendorId, testEmail, templateSlug as TemplateSlug)
       const info = TEMPLATE_INFO[templateSlug]
       setMessage(success
         ? { type: 'success', text: `${info?.label || templateSlug} test sent to ${testEmail}` }
