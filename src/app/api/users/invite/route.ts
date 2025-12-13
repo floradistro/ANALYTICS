@@ -52,11 +52,12 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 1: Create Supabase Auth user WITHOUT sending email
-    // We'll send our own email via Resend
+    // Step 1: Try to create Supabase Auth user, or link to existing one
+    let authUserId: string
+
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email: email.toLowerCase(),
-      email_confirm: true, // Auto-confirm email so they can log in after setting password
+      email_confirm: true,
       user_metadata: {
         first_name,
         last_name,
@@ -66,26 +67,81 @@ export async function POST(request: NextRequest) {
     })
 
     if (authError) {
-      console.error('[API] Auth create error:', authError)
-
+      // Check if user already exists in auth (e.g., customer account)
       if (authError.message?.includes('already been registered')) {
+        console.log('[API] Auth user exists, looking up existing account...')
+
+        // Query auth.users table directly using service role
+        const { data: authUserData, error: queryError } = await supabase
+          .from('auth.users')
+          .select('id, email, raw_user_meta_data')
+          .eq('email', email.toLowerCase())
+          .single()
+
+        // If direct query fails, try generating a recovery link to get user info
+        if (queryError || !authUserData) {
+          console.log('[API] Direct query failed, trying recovery link method...')
+
+          // Generate recovery link - this will give us the user info
+          const { data: recoveryData, error: recoveryError } = await supabase.auth.admin.generateLink({
+            type: 'recovery',
+            email: email.toLowerCase(),
+          })
+
+          if (recoveryError || !recoveryData?.user) {
+            console.error('[API] Failed to find existing user:', recoveryError)
+            return NextResponse.json(
+              { error: 'Email is registered but could not link account. The user can still log in with their existing password.' },
+              { status: 409 }
+            )
+          }
+
+          authUserId = recoveryData.user.id
+
+          // Update their metadata
+          await supabase.auth.admin.updateUserById(authUserId, {
+            user_metadata: {
+              ...recoveryData.user.user_metadata,
+              first_name,
+              last_name,
+              role,
+              vendor_id,
+              is_staff: true,
+            },
+          })
+        } else {
+          // Use the ID from direct query
+          authUserId = authUserData.id
+
+          // Update their metadata to include staff role
+          await supabase.auth.admin.updateUserById(authUserId, {
+            user_metadata: {
+              ...(authUserData.raw_user_meta_data || {}),
+              first_name,
+              last_name,
+              role,
+              vendor_id,
+              is_staff: true,
+            },
+          })
+        }
+
+        console.log('[API] Converted existing customer to staff:', authUserId)
+      } else {
+        console.error('[API] Auth create error:', authError)
         return NextResponse.json(
-          { error: 'This email is already registered. Please contact support.' },
-          { status: 409 }
+          { error: `Failed to create auth account: ${authError.message}` },
+          { status: 500 }
         )
       }
-
-      return NextResponse.json(
-        { error: `Failed to create auth account: ${authError.message}` },
-        { status: 500 }
-      )
-    }
-
-    if (!authData.user) {
-      return NextResponse.json(
-        { error: 'Auth user creation returned no user data' },
-        { status: 500 }
-      )
+    } else {
+      if (!authData.user) {
+        return NextResponse.json(
+          { error: 'Auth user creation returned no user data' },
+          { status: 500 }
+        )
+      }
+      authUserId = authData.user.id
     }
 
     // Step 2: Generate a recovery link for password setup
@@ -108,7 +164,7 @@ export async function POST(request: NextRequest) {
       .from('users')
       .insert({
         vendor_id,
-        auth_user_id: authData.user.id,
+        auth_user_id: authUserId,
         email: email.toLowerCase(),
         first_name,
         last_name,
@@ -123,8 +179,10 @@ export async function POST(request: NextRequest) {
     if (userError) {
       console.error('[API] User insert error:', userError)
 
-      // Rollback: Delete the auth user we just created
-      await supabase.auth.admin.deleteUser(authData.user.id)
+      // Rollback: Delete the auth user only if we created it (not if it was existing)
+      if (authData?.user) {
+        await supabase.auth.admin.deleteUser(authUserId)
+      }
 
       return NextResponse.json(
         { error: `Failed to create user record: ${userError.message}` },
@@ -132,35 +190,46 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Step 4: Send invitation email via Resend
-    const magicLink = linkData?.properties?.action_link || `${appUrl}/login`
+    // Step 4: Send invitation email via Resend (only for new users)
+    const isExistingUser = !authData?.user // Was an existing customer account
+    const loginUrl = 'https://floradistro.com/login'
+    const magicLink = linkData?.properties?.action_link || loginUrl
 
     try {
-      // Use password_reset template (exists in edge function) for team invites
-      const emailResult = await EmailService.send({
-        to: email.toLowerCase(),
-        toName: `${first_name} ${last_name}`,
-        templateSlug: 'password_reset',
-        vendorId: vendor_id,
-        data: {
-          customer_name: `${first_name} ${last_name}`,
-          reset_url: magicLink,
-        },
-      })
+      if (isExistingUser) {
+        // Existing user - no email needed, they already have their password
+        // Just log that we converted them
+        console.log('[API] Existing customer converted to staff - no email sent (they have existing credentials)')
+      } else {
+        // New user - send password reset link so they can set their password
+        const emailResult = await EmailService.send({
+          to: email.toLowerCase(),
+          toName: `${first_name} ${last_name}`,
+          templateSlug: 'password_reset',
+          vendorId: vendor_id,
+          data: {
+            customer_name: `${first_name} ${last_name}`,
+            reset_url: magicLink,
+          },
+        })
 
-      if (!emailResult.success) {
-        console.error('[API] Email send failed:', emailResult.error)
-        // Don't fail the request - user is created, they can use "forgot password"
+        if (!emailResult.success) {
+          console.error('[API] Email send failed:', emailResult.error)
+        }
       }
     } catch (emailErr) {
       console.error('[API] Email error:', emailErr)
       // Don't fail - user is created
     }
 
+    const message = isExistingUser
+      ? `${email} has been added as staff. They can log in with their existing password.`
+      : `Invitation sent to ${email}. They will receive an email to set up their account.`
+
     return NextResponse.json({
       success: true,
       user: userData,
-      message: `Invitation sent to ${email}. They will receive an email to set up their account.`,
+      message,
     })
 
   } catch (err) {

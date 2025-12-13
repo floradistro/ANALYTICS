@@ -826,11 +826,13 @@ function RegistersSettings({
 }) {
   const {
     registers,
+    terminalsByLocation,
     isLoading,
     loadRegisters,
     createRegister,
     updateRegister,
     deleteRegister,
+    linkTerminal,
     configureTerminal,
     removeTerminal,
   } = useRegistersManagementStore()
@@ -1143,6 +1145,50 @@ function RegistersSettings({
         </div>
         {showTerminalConfig && (
           <div className="p-6 border-t border-zinc-900 space-y-4">
+            {/* Available terminals at this location */}
+            {(() => {
+              const availableTerminals = (terminalsByLocation[selectedRegister.location_id] || [])
+                .filter(t => !registers.some(r => r.dejavoo_config_id === t.id && r.id !== selectedRegister.id))
+
+              if (availableTerminals.length > 0 && !selectedRegister.terminal) {
+                return (
+                  <div className="space-y-3 pb-4 border-b border-zinc-900">
+                    <div className="text-xs text-zinc-500 uppercase tracking-wider">Available Terminals at this Location</div>
+                    <div className="space-y-2">
+                      {availableTerminals.map((term) => (
+                        <button
+                          key={term.id}
+                          onClick={async () => {
+                            setSaving(true)
+                            const result = await linkTerminal(selectedRegister.id, term.id)
+                            setSaving(false)
+                            if (result.success) {
+                              setShowTerminalConfig(false)
+                              setMessage({ type: 'success', text: 'Terminal linked' })
+                              const updated = registers.find(r => r.id === selectedRegister.id)
+                              if (updated) setSelectedRegister({ ...updated, terminal: term, dejavoo_config_id: term.id })
+                            } else {
+                              setMessage({ type: 'error', text: result.error || 'Failed to link terminal' })
+                            }
+                          }}
+                          className="w-full p-3 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/50 text-left transition-colors"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm text-white">{term.manufacturer || 'Dejavoo'} {term.model || ''}</div>
+                              <div className="text-xs text-zinc-500 mt-0.5">Merchant: {term.merchant_id} • Terminal: {term.terminal_number}</div>
+                            </div>
+                            <span className="text-xs text-zinc-400">Link</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="text-xs text-zinc-600 pt-2">Or configure manually below:</div>
+                  </div>
+                )
+              }
+              return null
+            })()}
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Merchant ID" hint="Required"><input type="text" value={terminalForm.merchant_id} onChange={(e) => setTerminalForm({ ...terminalForm, merchant_id: e.target.value })} className="input-field" placeholder="8889992021" /></FormField>
               <FormField label="Authentication Code" hint="Required"><input type="text" value={terminalForm.authentication_code} onChange={(e) => setTerminalForm({ ...terminalForm, authentication_code: e.target.value })} className="input-field" placeholder="ABC123" /></FormField>
@@ -1572,7 +1618,14 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
   }, [vendorId])
 
   const handleCreate = async () => {
-    if (!vendorId) return
+    if (!vendorId) {
+      setMessage({ type: 'error', text: 'No vendor selected. Please refresh the page.' })
+      return
+    }
+    if (!formData.email || !formData.first_name || !formData.last_name) {
+      setMessage({ type: 'error', text: 'Please fill in all required fields.' })
+      return
+    }
     setSaving(true)
     const result = await createUser(vendorId, formData)
     setSaving(false)
@@ -1626,7 +1679,7 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
             <UserForm form={formData} setForm={setFormData} locations={locations} />
             <div className="flex gap-2 pt-4 border-t border-zinc-900">
               <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
-              <button onClick={handleCreate} disabled={saving || !formData.email || !formData.first_name} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Add</button>
+              <button onClick={handleCreate} disabled={saving || !formData.email || !formData.first_name || !formData.last_name} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Add</button>
             </div>
           </div>
         </Card>

@@ -74,6 +74,7 @@ export interface TerminalFormData {
 
 interface RegistersManagementState {
   registers: Register[]
+  terminalsByLocation: Record<string, TerminalConfig[]>
   isLoading: boolean
   error: string | null
 
@@ -81,6 +82,7 @@ interface RegistersManagementState {
   createRegister: (vendorId: string, data: RegisterFormData) => Promise<{ success: boolean; error?: string }>
   updateRegister: (registerId: string, data: Partial<RegisterFormData>) => Promise<{ success: boolean; error?: string }>
   deleteRegister: (registerId: string) => Promise<{ success: boolean; error?: string }>
+  linkTerminal: (registerId: string, terminalId: string) => Promise<{ success: boolean; error?: string }>
   configureTerminal: (registerId: string, locationId: string, data: TerminalFormData) => Promise<{ success: boolean; error?: string }>
   removeTerminal: (registerId: string, terminalId: string) => Promise<{ success: boolean; error?: string }>
   reset: () => void
@@ -92,6 +94,7 @@ interface RegistersManagementState {
 
 export const useRegistersManagementStore = create<RegistersManagementState>((set, get) => ({
   registers: [],
+  terminalsByLocation: {},
   isLoading: false,
   error: null,
 
@@ -112,23 +115,49 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
 
       if (registersError) throw registersError
 
-      // Fetch terminal configs for registers that have them
-      const registerIds = registersData?.filter(r => r.dejavoo_config_id).map(r => r.dejavoo_config_id) || []
+      console.log('[RegistersStore] Raw registers:', registersData)
 
+      // DEBUG: Fetch ALL terminals to see what exists
+      const { data: allTerminals } = await supabase
+        .from('dejavoo_terminal_configs')
+        .select('id, location_id, merchant_id, terminal_number')
+        .limit(20)
+      console.log('[RegistersStore] ALL terminals in DB:', allTerminals)
+
+      // Get all location IDs from registers
+      const locationIds = [...new Set(registersData?.map(r => r.location_id) || [])]
+      console.log('[RegistersStore] Location IDs:', locationIds)
+
+      // Fetch ALL terminal configs for these locations (not just linked ones)
       let terminalsMap: Record<string, TerminalConfig> = {}
-      if (registerIds.length > 0) {
+      let terminalsByLocation: Record<string, TerminalConfig[]> = {}
+
+      if (locationIds.length > 0) {
         const { data: terminalsData, error: terminalsError } = await supabase
           .from('dejavoo_terminal_configs')
           .select('*')
-          .in('id', registerIds)
+          .in('location_id', locationIds)
 
         if (terminalsError) throw terminalsError
 
+        console.log('[RegistersStore] All terminals for locations:', terminalsData)
+
+        // Map by ID for linked lookups
         terminalsMap = (terminalsData || []).reduce((acc, t) => {
           acc[t.id] = t
           return acc
         }, {} as Record<string, TerminalConfig>)
+
+        // Also group by location for available terminals
+        terminalsByLocation = (terminalsData || []).reduce((acc, t) => {
+          if (!acc[t.location_id]) acc[t.location_id] = []
+          acc[t.location_id].push(t)
+          return acc
+        }, {} as Record<string, TerminalConfig[]>)
       }
+
+      console.log('[RegistersStore] Terminals map:', terminalsMap)
+      console.log('[RegistersStore] Terminals by location:', terminalsByLocation)
 
       // Combine data
       const registers: Register[] = (registersData || []).map(r => ({
@@ -141,7 +170,7 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
         terminal: r.dejavoo_config_id ? terminalsMap[r.dejavoo_config_id] : null,
       }))
 
-      set({ registers, isLoading: false })
+      set({ registers, terminalsByLocation, isLoading: false })
     } catch (err) {
       console.error('[RegistersStore] Load error:', err)
       set({
@@ -262,6 +291,42 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to delete register',
+      }
+    }
+  },
+
+  linkTerminal: async (registerId: string, terminalId: string) => {
+    try {
+      const { error } = await supabase
+        .from('pos_registers')
+        .update({
+          dejavoo_config_id: terminalId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', registerId)
+
+      if (error) throw error
+
+      // Get terminal from state
+      const terminal = Object.values(get().terminalsByLocation)
+        .flat()
+        .find(t => t.id === terminalId)
+
+      // Update local state
+      set(state => ({
+        registers: state.registers.map(r =>
+          r.id === registerId
+            ? { ...r, dejavoo_config_id: terminalId, terminal: terminal || null }
+            : r
+        ),
+      }))
+
+      return { success: true }
+    } catch (err) {
+      console.error('[RegistersStore] Link terminal error:', err)
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to link terminal',
       }
     }
   },
@@ -399,5 +464,5 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
     }
   },
 
-  reset: () => set({ registers: [], isLoading: false, error: null }),
+  reset: () => set({ registers: [], terminalsByLocation: {}, isLoading: false, error: null }),
 }))
