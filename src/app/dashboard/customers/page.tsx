@@ -204,8 +204,8 @@ export default function CustomersPage() {
     if (!search) return true
     const searchLower = search.toLowerCase()
     return (
-      customer.first_name.toLowerCase().includes(searchLower) ||
-      customer.last_name.toLowerCase().includes(searchLower) ||
+      customer.first_name?.toLowerCase().includes(searchLower) ||
+      customer.last_name?.toLowerCase().includes(searchLower) ||
       customer.email?.toLowerCase().includes(searchLower) ||
       customer.phone?.includes(search)
     )
