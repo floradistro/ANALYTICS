@@ -50,8 +50,10 @@ interface UsersManagementState {
     phone?: string
     role: string
     employee_id?: string
-  }) => Promise<{ success: boolean; error?: string; message?: string }>
+    location_ids?: string[]
+  }) => Promise<{ success: boolean; error?: string; message?: string; userId?: string }>
   updateUser: (userId: string, updates: Partial<TeamUser>) => Promise<{ success: boolean; error?: string }>
+  updateUserLocations: (userId: string, locationIds: string[]) => Promise<{ success: boolean; error?: string }>
   deleteUser: (userId: string) => Promise<{ success: boolean; error?: string }>
   toggleUserStatus: (userId: string, status: 'active' | 'inactive') => Promise<{ success: boolean; error?: string }>
   reset: () => void
@@ -136,10 +138,27 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
         throw new Error(result.error || 'Failed to create user')
       }
 
+      // Assign locations if provided
+      if (userData.location_ids && userData.location_ids.length > 0 && result.user?.id) {
+        const { error: locError } = await supabase
+          .from('user_locations')
+          .insert(
+            userData.location_ids.map((locationId) => ({
+              user_id: result.user.id,
+              location_id: locationId,
+            }))
+          )
+
+        if (locError) {
+          console.error('[UsersStore] Location assignment error:', locError)
+          // Don't fail the whole operation, user is created
+        }
+      }
+
       // Reload users
       await get().loadUsers(vendorId)
 
-      return { success: true, message: result.message }
+      return { success: true, message: result.message, userId: result.user?.id }
     } catch (err) {
       console.error('[UsersStore] Create error:', err)
       return {
@@ -199,6 +218,59 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Failed to delete user',
+      }
+    }
+  },
+
+  updateUserLocations: async (userId: string, locationIds: string[]) => {
+    try {
+      // Delete existing location assignments
+      const { error: deleteError } = await supabase
+        .from('user_locations')
+        .delete()
+        .eq('user_id', userId)
+
+      if (deleteError) throw deleteError
+
+      // Insert new location assignments
+      if (locationIds.length > 0) {
+        const { error: insertError } = await supabase
+          .from('user_locations')
+          .insert(
+            locationIds.map((locationId) => ({
+              user_id: userId,
+              location_id: locationId,
+            }))
+          )
+
+        if (insertError) throw insertError
+      }
+
+      // Update local state
+      set((state) => ({
+        users: state.users.map((u) => {
+          if (u.id === userId) {
+            // We need to fetch location names - for now just update the IDs
+            return {
+              ...u,
+              location_count: locationIds.length,
+              locations: locationIds.map((id) => {
+                // Try to find the location name from existing data
+                const existingLoc = u.locations.find((l) => l.id === id)
+                return existingLoc || { id, name: 'Unknown' }
+              }),
+            }
+          }
+          return u
+        }),
+      }))
+
+      return { success: true }
+    } catch (err) {
+      console.error('[UsersStore] Update locations error:', err)
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to update user locations',
       }
     }
   },

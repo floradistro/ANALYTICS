@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { useEmailSettingsStore } from '@/stores/email-settings.store'
 import { useUsersManagementStore, ROLE_LABELS, type TeamUser } from '@/stores/users-management.store'
 import { useSuppliersManagementStore, type Supplier } from '@/stores/suppliers-management.store'
+import { useRegistersManagementStore, type Register, type TerminalConfig } from '@/stores/registers-management.store'
 import { supabase } from '@/lib/supabase'
 import {
   Store,
@@ -28,6 +29,9 @@ import {
   User,
   Edit3,
   FileText,
+  Monitor,
+  Terminal,
+  Settings2,
 } from 'lucide-react'
 // Tax rate structure for multiple taxes per location
 interface TaxRate {
@@ -71,6 +75,7 @@ function formatTaxRate(rate: number): string {
 type SettingsSection =
   | 'store'
   | 'locations'
+  | 'registers'
   | 'payments'
   | 'shipping'
   | 'email'
@@ -87,6 +92,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { id: 'store', label: 'Store', icon: Store, description: 'Business details & branding' },
   { id: 'locations', label: 'Locations', icon: MapPin, description: 'Store locations & tax rates' },
+  { id: 'registers', label: 'Registers', icon: Monitor, description: 'POS registers & terminals' },
   { id: 'payments', label: 'Payments', icon: CreditCard, description: 'Payment processors' },
   { id: 'shipping', label: 'Shipping', icon: Truck, description: 'Shipping rates & rules' },
   { id: 'email', label: 'Email', icon: Mail, description: 'Notifications & templates' },
@@ -201,6 +207,8 @@ export default function SettingsPage() {
         return <StoreSettings vendor={vendor} vendorId={vendorId} setVendor={handleVendorUpdate} />
       case 'locations':
         return <LocationsSettings locations={locations} loading={loading} onRefresh={fetchLocations} vendorId={vendorId} />
+      case 'registers':
+        return <RegistersSettings vendorId={vendorId} locations={locations} />
       case 'payments':
         return <PaymentsSettings />
       case 'shipping':
@@ -806,6 +814,364 @@ function LocationForm({ form, setForm }: { form: LocationEditForm; setForm: (f: 
 }
 
 // =============================================================================
+// REGISTERS SETTINGS
+// =============================================================================
+
+function RegistersSettings({
+  vendorId,
+  locations,
+}: {
+  vendorId: string | null
+  locations: LocationWithSettings[]
+}) {
+  const {
+    registers,
+    isLoading,
+    loadRegisters,
+    createRegister,
+    updateRegister,
+    deleteRegister,
+    configureTerminal,
+    removeTerminal,
+  } = useRegistersManagementStore()
+
+  const [selectedRegister, setSelectedRegister] = useState<Register | null>(null)
+  const [showCreate, setShowCreate] = useState(false)
+  const [showTerminalConfig, setShowTerminalConfig] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const [registerForm, setRegisterForm] = useState({
+    register_name: '',
+    register_number: '',
+    location_id: '',
+    allow_card: true,
+    allow_cash: true,
+    allow_refunds: true,
+    allow_voids: false,
+    notes: '',
+  })
+
+  const [terminalForm, setTerminalForm] = useState({
+    merchant_id: '',
+    authentication_code: '',
+    v_number: '',
+    tpn: '',
+    store_number: '',
+    terminal_number: '',
+    hc_pos_id: '',
+    model: '',
+    manufacturer: 'Dejavoo',
+  })
+
+  useEffect(() => {
+    if (vendorId) loadRegisters(vendorId)
+  }, [vendorId, loadRegisters])
+
+  const registersByLocation = registers.reduce((acc, reg) => {
+    const locationId = reg.location_id
+    if (!acc[locationId]) {
+      acc[locationId] = {
+        location: reg.location || { id: locationId, name: 'Unknown Location' },
+        registers: [],
+      }
+    }
+    acc[locationId].registers.push(reg)
+    return acc
+  }, {} as Record<string, { location: { id: string; name: string }; registers: Register[] }>)
+
+  const resetForms = () => {
+    setRegisterForm({
+      register_name: '',
+      register_number: '',
+      location_id: locations[0]?.id || '',
+      allow_card: true,
+      allow_cash: true,
+      allow_refunds: true,
+      allow_voids: false,
+      notes: '',
+    })
+    setTerminalForm({
+      merchant_id: '',
+      authentication_code: '',
+      v_number: '',
+      tpn: '',
+      store_number: '',
+      terminal_number: '',
+      hc_pos_id: '',
+      model: '',
+      manufacturer: 'Dejavoo',
+    })
+  }
+
+  const handleSelectRegister = (register: Register) => {
+    setSelectedRegister(register)
+    setRegisterForm({
+      register_name: register.register_name,
+      register_number: register.register_number,
+      location_id: register.location_id,
+      allow_card: register.allow_card,
+      allow_cash: register.allow_cash,
+      allow_refunds: register.allow_refunds,
+      allow_voids: register.allow_voids,
+      notes: register.notes || '',
+    })
+    if (register.terminal) {
+      setTerminalForm({
+        merchant_id: register.terminal.merchant_id,
+        authentication_code: register.terminal.authentication_code,
+        v_number: register.terminal.v_number,
+        tpn: register.terminal.tpn || '',
+        store_number: register.terminal.store_number,
+        terminal_number: register.terminal.terminal_number,
+        hc_pos_id: register.terminal.hc_pos_id,
+        model: register.terminal.model || '',
+        manufacturer: register.terminal.manufacturer || 'Dejavoo',
+      })
+    } else {
+      setTerminalForm({ merchant_id: '', authentication_code: '', v_number: '', tpn: '', store_number: '', terminal_number: '', hc_pos_id: '', model: '', manufacturer: 'Dejavoo' })
+    }
+    setShowTerminalConfig(false)
+  }
+
+  const handleCreateRegister = async () => {
+    if (!vendorId || !registerForm.location_id) return
+    setSaving(true)
+    const result = await createRegister(vendorId, registerForm)
+    setSaving(false)
+    if (result.success) {
+      setShowCreate(false)
+      resetForms()
+      setMessage({ type: 'success', text: 'Register created' })
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Failed to create register' })
+    }
+  }
+
+  const handleUpdateRegister = async () => {
+    if (!selectedRegister) return
+    setSaving(true)
+    const result = await updateRegister(selectedRegister.id, registerForm)
+    setSaving(false)
+    if (result.success) {
+      setMessage({ type: 'success', text: 'Register updated' })
+      setSelectedRegister({ ...selectedRegister, ...registerForm })
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Failed to update register' })
+    }
+  }
+
+  const handleDeleteRegister = async () => {
+    if (!selectedRegister || !confirm('Delete this register and its terminal configuration?')) return
+    setSaving(true)
+    const result = await deleteRegister(selectedRegister.id)
+    setSaving(false)
+    if (result.success) {
+      setSelectedRegister(null)
+      setMessage({ type: 'success', text: 'Register deleted' })
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Failed to delete register' })
+    }
+  }
+
+  const handleConfigureTerminal = async () => {
+    if (!selectedRegister) return
+    setSaving(true)
+    const result = await configureTerminal(selectedRegister.id, selectedRegister.location_id, terminalForm)
+    setSaving(false)
+    if (result.success) {
+      setShowTerminalConfig(false)
+      setMessage({ type: 'success', text: 'Terminal configured' })
+      const updated = registers.find(r => r.id === selectedRegister.id)
+      if (updated) setSelectedRegister(updated)
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Failed to configure terminal' })
+    }
+  }
+
+  const handleRemoveTerminal = async () => {
+    if (!selectedRegister?.terminal || !confirm('Remove terminal configuration?')) return
+    setSaving(true)
+    const result = await removeTerminal(selectedRegister.id, selectedRegister.terminal.id)
+    setSaving(false)
+    if (result.success) {
+      setSelectedRegister({ ...selectedRegister, terminal: null, dejavoo_config_id: null })
+      setMessage({ type: 'success', text: 'Terminal removed' })
+    } else {
+      setMessage({ type: 'error', text: result.error || 'Failed to remove terminal' })
+    }
+  }
+
+  if (!selectedRegister && !showCreate) {
+    return (
+      <div className="space-y-6">
+        <SectionHeader
+          title="Registers"
+          description="Manage POS registers and payment terminals"
+          action={
+            <button onClick={() => { resetForms(); setRegisterForm(f => ({ ...f, location_id: locations[0]?.id || '' })); setShowCreate(true) }} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 transition-colors text-sm font-light">
+              <Plus className="w-4 h-4" />
+              Add Register
+            </button>
+          }
+        />
+        {message && <StatusMessage type={message.type} text={message.text} />}
+        {isLoading ? (
+          <div className="text-center py-12 text-zinc-500 text-sm">Loading...</div>
+        ) : registers.length === 0 ? (
+          <Card>
+            <div className="p-12 text-center">
+              <Monitor className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
+              <p className="text-zinc-500 text-sm">No registers configured</p>
+              <p className="text-zinc-600 text-xs mt-1">Add a register to get started</p>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-6">
+            {Object.entries(registersByLocation).map(([locationId, { location, registers: regs }]) => (
+              <div key={locationId}>
+                <h3 className="text-[10px] font-medium text-zinc-500 uppercase tracking-wider px-1 mb-2">{location.name}</h3>
+                <div className="space-y-2">
+                  {regs.map((register) => (
+                    <Card key={register.id}>
+                      <button onClick={() => handleSelectRegister(register)} className="w-full p-4 flex items-center justify-between hover:bg-zinc-900/50 text-left transition-colors">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-2 h-2 rounded-full ${register.terminal ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-light text-white">{register.register_name}</span>
+                              <span className="text-xs text-zinc-600">{register.register_number}</span>
+                            </div>
+                            <div className="text-xs text-zinc-500 mt-0.5">
+                              {register.terminal ? <span className="text-emerald-400/80">{register.terminal.manufacturer || 'Dejavoo'} {register.terminal.model || ''} • Connected</span> : <span>No terminal configured</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-zinc-600" />
+                      </button>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (showCreate) {
+    return (
+      <div className="space-y-6">
+        <SectionHeader title="Add Register" description="Create a new POS register" action={<button onClick={() => { setShowCreate(false); resetForms() }} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>} />
+        {message && <StatusMessage type={message.type} text={message.text} />}
+        <Card>
+          <CardHeader icon={Monitor} title="Register Details" />
+          <div className="p-6 space-y-4 border-t border-zinc-900">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Register Name"><input type="text" value={registerForm.register_name} onChange={(e) => setRegisterForm({ ...registerForm, register_name: e.target.value })} className="input-field" placeholder="Register 1" /></FormField>
+              <FormField label="Register Number"><input type="text" value={registerForm.register_number} onChange={(e) => setRegisterForm({ ...registerForm, register_number: e.target.value })} className="input-field" placeholder="POS-001" /></FormField>
+              <FormField label="Location">
+                <select value={registerForm.location_id} onChange={(e) => setRegisterForm({ ...registerForm, location_id: e.target.value })} className="input-field">
+                  <option value="">Select location...</option>
+                  {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+                </select>
+              </FormField>
+              <FormField label="Notes"><input type="text" value={registerForm.notes} onChange={(e) => setRegisterForm({ ...registerForm, notes: e.target.value })} className="input-field" placeholder="Optional notes..." /></FormField>
+            </div>
+          </div>
+        </Card>
+        <Card>
+          <CardHeader icon={Settings2} title="Permissions" />
+          <div className="border-t border-zinc-900 divide-y divide-zinc-900">
+            <ToggleRow label="Accept Card" description="Allow card payments" checked={registerForm.allow_card} onChange={(v) => setRegisterForm({ ...registerForm, allow_card: v })} />
+            <ToggleRow label="Accept Cash" description="Allow cash payments" checked={registerForm.allow_cash} onChange={(v) => setRegisterForm({ ...registerForm, allow_cash: v })} />
+            <ToggleRow label="Allow Refunds" description="Process refunds" checked={registerForm.allow_refunds} onChange={(v) => setRegisterForm({ ...registerForm, allow_refunds: v })} />
+            <ToggleRow label="Allow Voids" description="Void transactions" checked={registerForm.allow_voids} onChange={(v) => setRegisterForm({ ...registerForm, allow_voids: v })} />
+          </div>
+        </Card>
+        <div className="flex justify-end">
+          <button onClick={handleCreateRegister} disabled={saving || !registerForm.register_name || !registerForm.register_number || !registerForm.location_id} className="flex items-center gap-2 px-6 py-3 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm font-light">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Create Register
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <SectionHeader title={selectedRegister.register_name} description={`${selectedRegister.location?.name || 'Unknown'} • ${selectedRegister.register_number}`} action={<div className="flex items-center gap-2"><button onClick={handleDeleteRegister} className="px-3 py-2 text-sm text-red-400 hover:text-red-300">Delete</button><button onClick={() => { setSelectedRegister(null); resetForms() }} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Back</button></div>} />
+      {message && <StatusMessage type={message.type} text={message.text} />}
+      <Card>
+        <CardHeader icon={Monitor} title="Register Details" />
+        <div className="p-6 space-y-4 border-t border-zinc-900">
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Register Name"><input type="text" value={registerForm.register_name} onChange={(e) => setRegisterForm({ ...registerForm, register_name: e.target.value })} className="input-field" /></FormField>
+            <FormField label="Register Number"><input type="text" value={registerForm.register_number} onChange={(e) => setRegisterForm({ ...registerForm, register_number: e.target.value })} className="input-field" /></FormField>
+            <FormField label="Location">
+              <select value={registerForm.location_id} onChange={(e) => setRegisterForm({ ...registerForm, location_id: e.target.value })} className="input-field">
+                {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Notes"><input type="text" value={registerForm.notes} onChange={(e) => setRegisterForm({ ...registerForm, notes: e.target.value })} className="input-field" placeholder="Optional notes..." /></FormField>
+          </div>
+        </div>
+      </Card>
+      <Card>
+        <CardHeader icon={Settings2} title="Permissions" />
+        <div className="border-t border-zinc-900 divide-y divide-zinc-900">
+          <ToggleRow label="Accept Card" description="Allow card payments" checked={registerForm.allow_card} onChange={(v) => setRegisterForm({ ...registerForm, allow_card: v })} />
+          <ToggleRow label="Accept Cash" description="Allow cash payments" checked={registerForm.allow_cash} onChange={(v) => setRegisterForm({ ...registerForm, allow_cash: v })} />
+          <ToggleRow label="Allow Refunds" description="Process refunds" checked={registerForm.allow_refunds} onChange={(v) => setRegisterForm({ ...registerForm, allow_refunds: v })} />
+          <ToggleRow label="Allow Voids" description="Void transactions" checked={registerForm.allow_voids} onChange={(v) => setRegisterForm({ ...registerForm, allow_voids: v })} />
+        </div>
+      </Card>
+      <Card>
+        <div className="p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className={`w-10 h-10 border flex items-center justify-center ${selectedRegister.terminal ? 'bg-emerald-900/20 border-emerald-800/30' : 'bg-zinc-900 border-zinc-800'}`}>
+              <Terminal className={`w-5 h-5 ${selectedRegister.terminal ? 'text-emerald-400' : 'text-zinc-600'}`} />
+            </div>
+            <div>
+              <div className="text-sm font-light text-white">Payment Terminal</div>
+              <div className="text-xs text-zinc-500 mt-0.5">{selectedRegister.terminal ? <span className="text-emerald-400/80">{selectedRegister.terminal.manufacturer || 'Dejavoo'} {selectedRegister.terminal.model || ''} • Merchant: {selectedRegister.terminal.merchant_id}</span> : 'No terminal configured'}</div>
+            </div>
+          </div>
+          <button onClick={() => setShowTerminalConfig(!showTerminalConfig)} className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">{selectedRegister.terminal ? 'Edit' : 'Configure'}</button>
+        </div>
+        {showTerminalConfig && (
+          <div className="p-6 border-t border-zinc-900 space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField label="Merchant ID" hint="Required"><input type="text" value={terminalForm.merchant_id} onChange={(e) => setTerminalForm({ ...terminalForm, merchant_id: e.target.value })} className="input-field" placeholder="8889992021" /></FormField>
+              <FormField label="Authentication Code" hint="Required"><input type="text" value={terminalForm.authentication_code} onChange={(e) => setTerminalForm({ ...terminalForm, authentication_code: e.target.value })} className="input-field" placeholder="ABC123" /></FormField>
+              <FormField label="V-Number" hint="Required"><input type="text" value={terminalForm.v_number} onChange={(e) => setTerminalForm({ ...terminalForm, v_number: e.target.value })} className="input-field" placeholder="V1234567" /></FormField>
+              <FormField label="TPN"><input type="text" value={terminalForm.tpn} onChange={(e) => setTerminalForm({ ...terminalForm, tpn: e.target.value })} className="input-field" placeholder="00099123" /></FormField>
+              <FormField label="Store Number" hint="Required"><input type="text" value={terminalForm.store_number} onChange={(e) => setTerminalForm({ ...terminalForm, store_number: e.target.value })} className="input-field" placeholder="001" /></FormField>
+              <FormField label="Terminal Number" hint="Required"><input type="text" value={terminalForm.terminal_number} onChange={(e) => setTerminalForm({ ...terminalForm, terminal_number: e.target.value })} className="input-field" placeholder="01" /></FormField>
+              <FormField label="HC POS ID" hint="Required"><input type="text" value={terminalForm.hc_pos_id} onChange={(e) => setTerminalForm({ ...terminalForm, hc_pos_id: e.target.value })} className="input-field" placeholder="POS001" /></FormField>
+              <FormField label="Model"><input type="text" value={terminalForm.model} onChange={(e) => setTerminalForm({ ...terminalForm, model: e.target.value })} className="input-field" placeholder="QD4" /></FormField>
+            </div>
+            <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
+              {selectedRegister.terminal && <button onClick={handleRemoveTerminal} className="text-xs text-red-400 hover:text-red-300">Remove Terminal</button>}
+              <div className="flex gap-2 ml-auto">
+                <button onClick={() => setShowTerminalConfig(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
+                <button onClick={handleConfigureTerminal} disabled={saving || !terminalForm.merchant_id || !terminalForm.authentication_code || !terminalForm.v_number || !terminalForm.store_number || !terminalForm.terminal_number || !terminalForm.hc_pos_id} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  {selectedRegister.terminal ? 'Update' : 'Configure'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+      <SaveButton saving={saving} onClick={handleUpdateRegister} />
+    </div>
+  )
+}
+
+// =============================================================================
 // PAYMENTS SETTINGS
 // =============================================================================
 
@@ -1173,29 +1539,57 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
 // TEAM SETTINGS
 // =============================================================================
 
+interface LocationOption {
+  id: string
+  name: string
+  is_active: boolean
+}
+
 function TeamSettings({ vendorId }: { vendorId: string | null }) {
-  const { users, isLoading, loadUsers, createUser, updateUser, deleteUser, toggleUserStatus } = useUsersManagementStore()
+  const { users, isLoading, loadUsers, createUser, updateUser, deleteUser, toggleUserStatus, updateUserLocations } = useUsersManagementStore()
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [formData, setFormData] = useState({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '' })
+  const [formData, setFormData] = useState({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '', location_ids: [] as string[] })
+  const [locations, setLocations] = useState<LocationOption[]>([])
 
   useEffect(() => { if (vendorId) loadUsers(vendorId) }, [vendorId, loadUsers])
+
+  // Fetch locations for the vendor
+  useEffect(() => {
+    if (!vendorId) return
+    const fetchLocations = async () => {
+      const { data, error } = await supabase
+        .from('locations')
+        .select('id, name, is_active')
+        .eq('vendor_id', vendorId)
+        .eq('is_active', true)
+        .order('name')
+      if (!error && data) setLocations(data)
+    }
+    fetchLocations()
+  }, [vendorId])
 
   const handleCreate = async () => {
     if (!vendorId) return
     setSaving(true)
     const result = await createUser(vendorId, formData)
     setSaving(false)
-    if (result.success) { setShowCreate(false); setFormData({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '' }); setMessage({ type: 'success', text: result.message || 'Invitation sent! User will receive an email to set their password.' }) }
+    if (result.success) { setShowCreate(false); setFormData({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '', location_ids: [] }); setMessage({ type: 'success', text: result.message || 'Invitation sent! User will receive an email to set their password.' }) }
     else { setMessage({ type: 'error', text: result.error || 'Failed to create user' }) }
   }
 
   const handleUpdate = async () => {
     if (!editingId) return
     setSaving(true)
-    const result = await updateUser(editingId, formData as any)
+    const { location_ids, ...userData } = formData
+    const result = await updateUser(editingId, userData as any)
+    // Update locations separately
+    if (result.success) {
+      await updateUserLocations(editingId, location_ids)
+      if (vendorId) await loadUsers(vendorId) // Reload to get updated locations
+    }
     setSaving(false)
     if (result.success) { setEditingId(null); setMessage({ type: 'success', text: 'User updated' }) }
     else { setMessage({ type: 'error', text: result.error || 'Failed' }) }
@@ -1209,7 +1603,15 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
 
   const startEdit = (user: TeamUser) => {
     setEditingId(user.id)
-    setFormData({ first_name: user.first_name, last_name: user.last_name, email: user.email, phone: user.phone || '', role: user.role, employee_id: user.employee_id || '' })
+    setFormData({
+      first_name: user.first_name,
+      last_name: user.last_name,
+      email: user.email,
+      phone: user.phone || '',
+      role: user.role,
+      employee_id: user.employee_id || '',
+      location_ids: user.locations?.map(l => l.id) || []
+    })
   }
 
   return (
@@ -1221,7 +1623,7 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
         <Card>
           <div className="p-6 space-y-4">
             <h3 className="text-sm font-light text-white mb-4">New Team Member</h3>
-            <UserForm form={formData} setForm={setFormData} />
+            <UserForm form={formData} setForm={setFormData} locations={locations} />
             <div className="flex gap-2 pt-4 border-t border-zinc-900">
               <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
               <button onClick={handleCreate} disabled={saving || !formData.email || !formData.first_name} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}Add</button>
@@ -1238,7 +1640,7 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
             <Card key={user.id}>
               {editingId === user.id ? (
                 <div className="p-6 space-y-4">
-                  <UserForm form={formData} setForm={setFormData} />
+                  <UserForm form={formData} setForm={setFormData} locations={locations} />
                   <div className="flex gap-2 pt-4 border-t border-zinc-900">
                     <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
                     <button onClick={handleUpdate} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}Save</button>
@@ -1255,6 +1657,13 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
                         {user.status === 'inactive' && <span className="px-2 py-0.5 text-[10px] bg-zinc-800 text-zinc-500 border border-zinc-700">Inactive</span>}
                       </div>
                       <div className="text-xs text-zinc-500 mt-0.5">{user.email}</div>
+                      {user.locations && user.locations.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {user.locations.map(loc => (
+                            <span key={loc.id} className="px-1.5 py-0.5 text-[10px] bg-zinc-800 text-zinc-400 border border-zinc-700">{loc.name}</span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1272,24 +1681,55 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
   )
 }
 
-function UserForm({ form, setForm }: { form: any; setForm: (f: any) => void }) {
+function UserForm({ form, setForm, locations }: { form: any; setForm: (f: any) => void; locations: LocationOption[] }) {
+  const toggleLocation = (locationId: string) => {
+    const current = form.location_ids || []
+    const updated = current.includes(locationId)
+      ? current.filter((id: string) => id !== locationId)
+      : [...current, locationId]
+    setForm({ ...form, location_ids: updated })
+  }
+
   return (
-    <div className="grid grid-cols-2 gap-4">
-      <FormField label="First Name"><input type="text" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="input-field" /></FormField>
-      <FormField label="Last Name"><input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="input-field" /></FormField>
-      <FormField label="Email"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-field" /></FormField>
-      <FormField label="Phone"><input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-field" /></FormField>
-      <FormField label="Role">
-        <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field">
-          <option value="vendor_owner">Owner</option>
-          <option value="vendor_manager">Manager</option>
-          <option value="location_manager">Location Manager</option>
-          <option value="pos_staff">Staff</option>
-          <option value="inventory_staff">Inventory</option>
-          <option value="readonly">Read Only</option>
-        </select>
-      </FormField>
-      <FormField label="Employee ID"><input type="text" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} className="input-field" placeholder="Optional" /></FormField>
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <FormField label="First Name"><input type="text" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="input-field" /></FormField>
+        <FormField label="Last Name"><input type="text" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="input-field" /></FormField>
+        <FormField label="Email"><input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input-field" /></FormField>
+        <FormField label="Phone"><input type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input-field" /></FormField>
+        <FormField label="Role">
+          <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="input-field">
+            <option value="vendor_owner">Owner</option>
+            <option value="vendor_manager">Manager</option>
+            <option value="location_manager">Location Manager</option>
+            <option value="pos_staff">Staff</option>
+            <option value="inventory_staff">Inventory</option>
+            <option value="readonly">Read Only</option>
+          </select>
+        </FormField>
+        <FormField label="Employee ID"><input type="text" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })} className="input-field" placeholder="Optional" /></FormField>
+      </div>
+      {locations.length > 0 && (
+        <div>
+          <label className="block text-xs text-zinc-500 uppercase tracking-wider mb-2">Assigned Locations</label>
+          <div className="flex flex-wrap gap-2">
+            {locations.map(loc => (
+              <button
+                key={loc.id}
+                type="button"
+                onClick={() => toggleLocation(loc.id)}
+                className={`px-3 py-1.5 text-xs border transition-colors ${
+                  (form.location_ids || []).includes(loc.id)
+                    ? 'bg-white text-black border-white'
+                    : 'bg-transparent text-zinc-400 border-zinc-700 hover:border-zinc-500'
+                }`}
+              >
+                {loc.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
