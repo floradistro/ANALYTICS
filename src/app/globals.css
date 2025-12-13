@@ -117,3 +117,29 @@ body {
 .mapboxgl-ctrl-logo {
   display: none !important;
 }
+
+/* Form inputs */
+.input-field {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #09090b;
+  border: 1px solid #27272a;
+  color: #ffffff;
+  font-size: 0.875rem;
+  font-weight: 300;
+  transition: border-color 0.15s ease;
+}
+
+.input-field::placeholder {
+  color: #52525b;
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: #3f3f46;
+}
+
+.input-field:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

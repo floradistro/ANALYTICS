@@ -11,7 +11,7 @@
 
 import { create } from 'zustand'
 import { supabase } from '@/lib/supabase'
-import { useDashboardStore } from './dashboard.store'
+import { getDateRangeForQuery } from '@/lib/date-utils'
 
 export interface Order {
   id: string
@@ -101,17 +101,6 @@ export function isPaidOrder(order: Order): boolean {
   return order.payment_status === 'paid' && order.status !== 'cancelled'
 }
 
-/**
- * Get date range from dashboard store
- */
-function getDateRange() {
-  const { dateRange } = useDashboardStore.getState()
-  return {
-    start: dateRange.start.toISOString(),
-    end: dateRange.end.toISOString(),
-  }
-}
-
 const defaultFilters: OrderFilters = {
   orderTypes: [],
   locationIds: [],
@@ -130,7 +119,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
 
     set({ isLoading: true, error: null })
 
-    const { start, end } = getDateRange()
+    const { start, end } = getDateRangeForQuery()
 
     try {
       // Fetch ALL orders for the date range (paginated)
