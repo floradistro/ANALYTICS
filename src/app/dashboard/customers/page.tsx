@@ -19,6 +19,7 @@ import {
 interface CustomerWithStats extends Omit<Customer, 'order_count' | 'total_spent'> {
   order_count?: number | null
   total_spent?: number | null
+  vendor_customer_number?: string | null
 }
 
 export default function CustomersPage() {
