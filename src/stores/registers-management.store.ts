@@ -122,7 +122,14 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
         .from('dejavoo_terminal_configs')
         .select('id, location_id, merchant_id, terminal_number')
         .limit(20)
-      console.log('[RegistersStore] ALL terminals in DB:', allTerminals)
+      console.log('[RegistersStore] ALL dejavoo_terminal_configs:', allTerminals)
+
+      // DEBUG: Check payment_processors table for Dejavoo configs
+      const { data: paymentProcessors } = await supabase
+        .from('payment_processors')
+        .select('id, vendor_id, location_id, processor_type, dejavoo_merchant_id, dejavoo_v_number, dejavoo_register_id, dejavoo_store_number')
+        .limit(20)
+      console.log('[RegistersStore] ALL payment_processors:', paymentProcessors)
 
       // Get all location IDs from registers
       const locationIds = [...new Set(registersData?.map(r => r.location_id) || [])]

@@ -16,9 +16,9 @@ import {
   Download,
 } from 'lucide-react'
 
-interface CustomerWithStats extends Customer {
-  order_count?: number
-  total_spent?: number
+interface CustomerWithStats extends Omit<Customer, 'order_count' | 'total_spent'> {
+  order_count?: number | null
+  total_spent?: number | null
 }
 
 export default function CustomersPage() {
