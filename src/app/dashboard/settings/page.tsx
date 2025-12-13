@@ -826,20 +826,19 @@ function RegistersSettings({
 }) {
   const {
     registers,
-    terminalsByLocation,
+    processorsByLocation,
     isLoading,
     loadRegisters,
     createRegister,
     updateRegister,
     deleteRegister,
-    linkTerminal,
-    configureTerminal,
-    removeTerminal,
+    linkProcessor,
+    unlinkProcessor,
   } = useRegistersManagementStore()
 
   const [selectedRegister, setSelectedRegister] = useState<Register | null>(null)
   const [showCreate, setShowCreate] = useState(false)
-  const [showTerminalConfig, setShowTerminalConfig] = useState(false)
+  const [showProcessorSelect, setShowProcessorSelect] = useState(false)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
@@ -852,18 +851,6 @@ function RegistersSettings({
     allow_refunds: true,
     allow_voids: false,
     notes: '',
-  })
-
-  const [terminalForm, setTerminalForm] = useState({
-    merchant_id: '',
-    authentication_code: '',
-    v_number: '',
-    tpn: '',
-    store_number: '',
-    terminal_number: '',
-    hc_pos_id: '',
-    model: '',
-    manufacturer: 'Dejavoo',
   })
 
   useEffect(() => {
@@ -893,17 +880,6 @@ function RegistersSettings({
       allow_voids: false,
       notes: '',
     })
-    setTerminalForm({
-      merchant_id: '',
-      authentication_code: '',
-      v_number: '',
-      tpn: '',
-      store_number: '',
-      terminal_number: '',
-      hc_pos_id: '',
-      model: '',
-      manufacturer: 'Dejavoo',
-    })
   }
 
   const handleSelectRegister = (register: Register) => {
@@ -918,22 +894,7 @@ function RegistersSettings({
       allow_voids: register.allow_voids,
       notes: register.notes || '',
     })
-    if (register.terminal) {
-      setTerminalForm({
-        merchant_id: register.terminal.merchant_id,
-        authentication_code: register.terminal.authentication_code,
-        v_number: register.terminal.v_number,
-        tpn: register.terminal.tpn || '',
-        store_number: register.terminal.store_number,
-        terminal_number: register.terminal.terminal_number,
-        hc_pos_id: register.terminal.hc_pos_id,
-        model: register.terminal.model || '',
-        manufacturer: register.terminal.manufacturer || 'Dejavoo',
-      })
-    } else {
-      setTerminalForm({ merchant_id: '', authentication_code: '', v_number: '', tpn: '', store_number: '', terminal_number: '', hc_pos_id: '', model: '', manufacturer: 'Dejavoo' })
-    }
-    setShowTerminalConfig(false)
+    setShowProcessorSelect(false)
   }
 
   const handleCreateRegister = async () => {
@@ -964,7 +925,7 @@ function RegistersSettings({
   }
 
   const handleDeleteRegister = async () => {
-    if (!selectedRegister || !confirm('Delete this register and its terminal configuration?')) return
+    if (!selectedRegister || !confirm('Delete this register?')) return
     setSaving(true)
     const result = await deleteRegister(selectedRegister.id)
     setSaving(false)
@@ -976,31 +937,31 @@ function RegistersSettings({
     }
   }
 
-  const handleConfigureTerminal = async () => {
+  const handleLinkProcessor = async (processorId: string) => {
     if (!selectedRegister) return
     setSaving(true)
-    const result = await configureTerminal(selectedRegister.id, selectedRegister.location_id, terminalForm)
+    const result = await linkProcessor(selectedRegister.id, processorId)
     setSaving(false)
     if (result.success) {
-      setShowTerminalConfig(false)
-      setMessage({ type: 'success', text: 'Terminal configured' })
-      const updated = registers.find(r => r.id === selectedRegister.id)
-      if (updated) setSelectedRegister(updated)
+      setShowProcessorSelect(false)
+      setMessage({ type: 'success', text: 'Payment processor linked' })
+      const processor = (processorsByLocation[selectedRegister.location_id] || []).find(p => p.id === processorId)
+      setSelectedRegister({ ...selectedRegister, payment_processor_id: processorId, processor: processor || null })
     } else {
-      setMessage({ type: 'error', text: result.error || 'Failed to configure terminal' })
+      setMessage({ type: 'error', text: result.error || 'Failed to link processor' })
     }
   }
 
-  const handleRemoveTerminal = async () => {
-    if (!selectedRegister?.terminal || !confirm('Remove terminal configuration?')) return
+  const handleUnlinkProcessor = async () => {
+    if (!selectedRegister?.processor || !confirm('Unlink payment processor?')) return
     setSaving(true)
-    const result = await removeTerminal(selectedRegister.id, selectedRegister.terminal.id)
+    const result = await unlinkProcessor(selectedRegister.id)
     setSaving(false)
     if (result.success) {
-      setSelectedRegister({ ...selectedRegister, terminal: null, dejavoo_config_id: null })
-      setMessage({ type: 'success', text: 'Terminal removed' })
+      setSelectedRegister({ ...selectedRegister, payment_processor_id: null, processor: null })
+      setMessage({ type: 'success', text: 'Payment processor unlinked' })
     } else {
-      setMessage({ type: 'error', text: result.error || 'Failed to remove terminal' })
+      setMessage({ type: 'error', text: result.error || 'Failed to unlink processor' })
     }
   }
 
@@ -1038,14 +999,14 @@ function RegistersSettings({
                     <Card key={register.id}>
                       <button onClick={() => handleSelectRegister(register)} className="w-full p-4 flex items-center justify-between hover:bg-zinc-900/50 text-left transition-colors">
                         <div className="flex items-center gap-4">
-                          <div className={`w-2 h-2 rounded-full ${register.terminal ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
+                          <div className={`w-2 h-2 rounded-full ${register.processor ? 'bg-emerald-400' : 'bg-zinc-600'}`} />
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="text-sm font-light text-white">{register.register_name}</span>
                               <span className="text-xs text-zinc-600">{register.register_number}</span>
                             </div>
                             <div className="text-xs text-zinc-500 mt-0.5">
-                              {register.terminal ? <span className="text-emerald-400/80">{register.terminal.manufacturer || 'Dejavoo'} {register.terminal.model || ''} • Connected</span> : <span>No terminal configured</span>}
+                              {register.processor ? <span className="text-emerald-400/80">{register.processor.processor_name} • {register.processor.dejavoo_merchant_id}</span> : <span>No payment processor</span>}
                             </div>
                           </div>
                         </div>
@@ -1133,82 +1094,75 @@ function RegistersSettings({
       <Card>
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className={`w-10 h-10 border flex items-center justify-center ${selectedRegister.terminal ? 'bg-emerald-900/20 border-emerald-800/30' : 'bg-zinc-900 border-zinc-800'}`}>
-              <Terminal className={`w-5 h-5 ${selectedRegister.terminal ? 'text-emerald-400' : 'text-zinc-600'}`} />
+            <div className={`w-10 h-10 border flex items-center justify-center ${selectedRegister.processor ? 'bg-emerald-900/20 border-emerald-800/30' : 'bg-zinc-900 border-zinc-800'}`}>
+              <Terminal className={`w-5 h-5 ${selectedRegister.processor ? 'text-emerald-400' : 'text-zinc-600'}`} />
             </div>
             <div>
-              <div className="text-sm font-light text-white">Payment Terminal</div>
-              <div className="text-xs text-zinc-500 mt-0.5">{selectedRegister.terminal ? <span className="text-emerald-400/80">{selectedRegister.terminal.manufacturer || 'Dejavoo'} {selectedRegister.terminal.model || ''} • Merchant: {selectedRegister.terminal.merchant_id}</span> : 'No terminal configured'}</div>
+              <div className="text-sm font-light text-white">Payment Processor</div>
+              <div className="text-xs text-zinc-500 mt-0.5">
+                {selectedRegister.processor ? (
+                  <span className="text-emerald-400/80">{selectedRegister.processor.processor_name} • Merchant: {selectedRegister.processor.dejavoo_merchant_id}</span>
+                ) : 'No payment processor linked'}
+              </div>
             </div>
           </div>
-          <button onClick={() => setShowTerminalConfig(!showTerminalConfig)} className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">{selectedRegister.terminal ? 'Edit' : 'Configure'}</button>
+          {selectedRegister.processor ? (
+            <button onClick={handleUnlinkProcessor} className="px-3 py-1.5 text-xs text-red-400 border border-red-900/50 hover:border-red-800 hover:text-red-300">Unlink</button>
+          ) : (
+            <button onClick={() => setShowProcessorSelect(!showProcessorSelect)} className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">Link Processor</button>
+          )}
         </div>
-        {showTerminalConfig && (
-          <div className="p-6 border-t border-zinc-900 space-y-4">
-            {/* Available terminals at this location */}
+        {showProcessorSelect && !selectedRegister.processor && (
+          <div className="p-4 border-t border-zinc-900 space-y-3">
+            <div className="text-xs text-zinc-500 uppercase tracking-wider">Available Processors at {selectedRegister.location?.name || 'this location'}</div>
             {(() => {
-              const availableTerminals = (terminalsByLocation[selectedRegister.location_id] || [])
-                .filter(t => !registers.some(r => r.dejavoo_config_id === t.id && r.id !== selectedRegister.id))
+              const availableProcessors = (processorsByLocation[selectedRegister.location_id] || [])
+                .filter(p => p.is_active && !registers.some(r => r.payment_processor_id === p.id && r.id !== selectedRegister.id))
 
-              if (availableTerminals.length > 0 && !selectedRegister.terminal) {
+              if (availableProcessors.length === 0) {
                 return (
-                  <div className="space-y-3 pb-4 border-b border-zinc-900">
-                    <div className="text-xs text-zinc-500 uppercase tracking-wider">Available Terminals at this Location</div>
-                    <div className="space-y-2">
-                      {availableTerminals.map((term) => (
-                        <button
-                          key={term.id}
-                          onClick={async () => {
-                            setSaving(true)
-                            const result = await linkTerminal(selectedRegister.id, term.id)
-                            setSaving(false)
-                            if (result.success) {
-                              setShowTerminalConfig(false)
-                              setMessage({ type: 'success', text: 'Terminal linked' })
-                              const updated = registers.find(r => r.id === selectedRegister.id)
-                              if (updated) setSelectedRegister({ ...updated, terminal: term, dejavoo_config_id: term.id })
-                            } else {
-                              setMessage({ type: 'error', text: result.error || 'Failed to link terminal' })
-                            }
-                          }}
-                          className="w-full p-3 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/50 text-left transition-colors"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm text-white">{term.manufacturer || 'Dejavoo'} {term.model || ''}</div>
-                              <div className="text-xs text-zinc-500 mt-0.5">Merchant: {term.merchant_id} • Terminal: {term.terminal_number}</div>
-                            </div>
-                            <span className="text-xs text-zinc-400">Link</span>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                    <div className="text-xs text-zinc-600 pt-2">Or configure manually below:</div>
+                  <div className="text-center py-6 text-zinc-600 text-sm">
+                    No available processors at this location.
+                    <br />
+                    <span className="text-xs">Create processors in the native POS app.</span>
                   </div>
                 )
               }
-              return null
+
+              return (
+                <div className="space-y-2">
+                  {availableProcessors.map((proc) => (
+                    <button
+                      key={proc.id}
+                      onClick={() => handleLinkProcessor(proc.id)}
+                      disabled={saving}
+                      className="w-full p-3 border border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/50 text-left transition-colors disabled:opacity-50"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm text-white">{proc.processor_name}</div>
+                          <div className="text-xs text-zinc-500 mt-0.5">
+                            Merchant: {proc.dejavoo_merchant_id} • V: {proc.dejavoo_v_number}
+                          </div>
+                        </div>
+                        <span className="text-xs text-emerald-400">Link</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )
             })()}
-            <div className="grid grid-cols-2 gap-4">
-              <FormField label="Merchant ID" hint="Required"><input type="text" value={terminalForm.merchant_id} onChange={(e) => setTerminalForm({ ...terminalForm, merchant_id: e.target.value })} className="input-field" placeholder="8889992021" /></FormField>
-              <FormField label="Authentication Code" hint="Required"><input type="text" value={terminalForm.authentication_code} onChange={(e) => setTerminalForm({ ...terminalForm, authentication_code: e.target.value })} className="input-field" placeholder="ABC123" /></FormField>
-              <FormField label="V-Number" hint="Required"><input type="text" value={terminalForm.v_number} onChange={(e) => setTerminalForm({ ...terminalForm, v_number: e.target.value })} className="input-field" placeholder="V1234567" /></FormField>
-              <FormField label="TPN"><input type="text" value={terminalForm.tpn} onChange={(e) => setTerminalForm({ ...terminalForm, tpn: e.target.value })} className="input-field" placeholder="00099123" /></FormField>
-              <FormField label="Store Number" hint="Required"><input type="text" value={terminalForm.store_number} onChange={(e) => setTerminalForm({ ...terminalForm, store_number: e.target.value })} className="input-field" placeholder="001" /></FormField>
-              <FormField label="Terminal Number" hint="Required"><input type="text" value={terminalForm.terminal_number} onChange={(e) => setTerminalForm({ ...terminalForm, terminal_number: e.target.value })} className="input-field" placeholder="01" /></FormField>
-              <FormField label="HC POS ID" hint="Required"><input type="text" value={terminalForm.hc_pos_id} onChange={(e) => setTerminalForm({ ...terminalForm, hc_pos_id: e.target.value })} className="input-field" placeholder="POS001" /></FormField>
-              <FormField label="Model"><input type="text" value={terminalForm.model} onChange={(e) => setTerminalForm({ ...terminalForm, model: e.target.value })} className="input-field" placeholder="QD4" /></FormField>
-            </div>
-            <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
-              {selectedRegister.terminal && <button onClick={handleRemoveTerminal} className="text-xs text-red-400 hover:text-red-300">Remove Terminal</button>}
-              <div className="flex gap-2 ml-auto">
-                <button onClick={() => setShowTerminalConfig(false)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
-                <button onClick={handleConfigureTerminal} disabled={saving || !terminalForm.merchant_id || !terminalForm.authentication_code || !terminalForm.v_number || !terminalForm.store_number || !terminalForm.terminal_number || !terminalForm.hc_pos_id} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  {selectedRegister.terminal ? 'Update' : 'Configure'}
-                </button>
-              </div>
-            </div>
+            <button onClick={() => setShowProcessorSelect(false)} className="w-full py-2 text-xs text-zinc-500 hover:text-zinc-400">Cancel</button>
+          </div>
+        )}
+        {selectedRegister.processor && (
+          <div className="p-4 border-t border-zinc-900 grid grid-cols-2 gap-4 text-xs">
+            <div><span className="text-zinc-600">Merchant ID:</span> <span className="text-zinc-300">{selectedRegister.processor.dejavoo_merchant_id}</span></div>
+            <div><span className="text-zinc-600">V-Number:</span> <span className="text-zinc-300">{selectedRegister.processor.dejavoo_v_number}</span></div>
+            <div><span className="text-zinc-600">Auth Key:</span> <span className="text-zinc-300">{selectedRegister.processor.dejavoo_authkey ? '••••••••' : '—'}</span></div>
+            <div><span className="text-zinc-600">TPN:</span> <span className="text-zinc-300">{selectedRegister.processor.dejavoo_tpn || '—'}</span></div>
+            <div><span className="text-zinc-600">Store #:</span> <span className="text-zinc-300">{selectedRegister.processor.dejavoo_store_number || '—'}</span></div>
+            <div><span className="text-zinc-600">Environment:</span> <span className="text-zinc-300">{selectedRegister.processor.environment}</span></div>
           </div>
         )}
       </Card>

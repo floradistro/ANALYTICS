@@ -1,6 +1,9 @@
 /**
  * Registers Management Store
- * Handles POS register and terminal configuration CRUD operations
+ * Handles POS register and payment processor configuration
+ *
+ * NOTE: Terminal configs are stored in `payment_processors` table (not dejavoo_terminal_configs)
+ * Registers link to processors via `payment_processor_id`
  */
 
 import { create } from 'zustand'
@@ -10,19 +13,29 @@ import { supabase } from '@/lib/supabase'
 // TYPES
 // =============================================================================
 
-export interface TerminalConfig {
+export type ProcessorType = 'dejavoo' | 'stripe' | 'square' | 'clover' | 'authorizenet'
+
+export interface PaymentProcessor {
   id: string
-  location_id: string
-  merchant_id: string
-  authentication_code: string
-  v_number: string
-  tpn: string | null
-  store_number: string
-  terminal_number: string
-  hc_pos_id: string
-  model: string | null
-  manufacturer: string | null
+  vendor_id: string
+  location_id: string | null
+  processor_type: ProcessorType
+  processor_name: string
   is_active: boolean
+  is_default: boolean
+  environment: 'sandbox' | 'production' | 'live'
+  // Dejavoo fields
+  dejavoo_authkey: string | null
+  dejavoo_tpn: string | null
+  dejavoo_merchant_id: string | null
+  dejavoo_v_number: string | null
+  dejavoo_register_id: string | null
+  dejavoo_store_number: string | null
+  // Authorize.Net fields
+  authorizenet_api_login_id: string | null
+  authorizenet_transaction_key: string | null
+  is_ecommerce_processor: boolean
+  // Timestamps
   created_at: string | null
   updated_at: string | null
 }
@@ -41,11 +54,11 @@ export interface Register {
   device_name: string | null
   device_type: string | null
   notes: string | null
-  dejavoo_config_id: string | null
+  payment_processor_id: string | null
   created_at: string | null
   updated_at: string | null
   // Joined data
-  terminal?: TerminalConfig | null
+  processor?: PaymentProcessor | null
   location?: { id: string; name: string } | null
 }
 
@@ -60,21 +73,22 @@ export interface RegisterFormData {
   notes: string
 }
 
-export interface TerminalFormData {
-  merchant_id: string
-  authentication_code: string
-  v_number: string
-  tpn: string
-  store_number: string
-  terminal_number: string
-  hc_pos_id: string
-  model: string
-  manufacturer: string
+export interface ProcessorFormData {
+  processor_name: string
+  processor_type: ProcessorType
+  environment: 'sandbox' | 'production' | 'live'
+  // Dejavoo fields
+  dejavoo_merchant_id: string
+  dejavoo_authkey: string
+  dejavoo_v_number: string
+  dejavoo_tpn: string
+  dejavoo_store_number: string
+  dejavoo_register_id: string
 }
 
 interface RegistersManagementState {
   registers: Register[]
-  terminalsByLocation: Record<string, TerminalConfig[]>
+  processorsByLocation: Record<string, PaymentProcessor[]>
   isLoading: boolean
   error: string | null
 
@@ -82,9 +96,9 @@ interface RegistersManagementState {
   createRegister: (vendorId: string, data: RegisterFormData) => Promise<{ success: boolean; error?: string }>
   updateRegister: (registerId: string, data: Partial<RegisterFormData>) => Promise<{ success: boolean; error?: string }>
   deleteRegister: (registerId: string) => Promise<{ success: boolean; error?: string }>
-  linkTerminal: (registerId: string, terminalId: string) => Promise<{ success: boolean; error?: string }>
-  configureTerminal: (registerId: string, locationId: string, data: TerminalFormData) => Promise<{ success: boolean; error?: string }>
-  removeTerminal: (registerId: string, terminalId: string) => Promise<{ success: boolean; error?: string }>
+  linkProcessor: (registerId: string, processorId: string) => Promise<{ success: boolean; error?: string }>
+  unlinkProcessor: (registerId: string) => Promise<{ success: boolean; error?: string }>
+  createProcessor: (vendorId: string, locationId: string, data: ProcessorFormData) => Promise<{ success: boolean; error?: string }>
   reset: () => void
 }
 
@@ -94,7 +108,7 @@ interface RegistersManagementState {
 
 export const useRegistersManagementStore = create<RegistersManagementState>((set, get) => ({
   registers: [],
-  terminalsByLocation: {},
+  processorsByLocation: {},
   isLoading: false,
   error: null,
 
@@ -115,60 +129,39 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
 
       if (registersError) throw registersError
 
-      console.log('[RegistersStore] Raw registers:', registersData)
-
-      // DEBUG: Fetch ALL terminals to see what exists
-      const { data: allTerminals } = await supabase
-        .from('dejavoo_terminal_configs')
-        .select('id, location_id, merchant_id, terminal_number')
-        .limit(20)
-      console.log('[RegistersStore] ALL dejavoo_terminal_configs:', allTerminals)
-
-      // DEBUG: Check payment_processors table for Dejavoo configs
-      const { data: paymentProcessors } = await supabase
-        .from('payment_processors')
-        .select('id, vendor_id, location_id, processor_type, dejavoo_merchant_id, dejavoo_v_number, dejavoo_register_id, dejavoo_store_number, dejavoo_authkey, dejavoo_tpn')
-        .not('dejavoo_merchant_id', 'is', null)
-        .limit(20)
-      console.log('[RegistersStore] Dejavoo payment_processors:', paymentProcessors)
-
-      // Also check what pos_registers have for payment_processor_id
-      console.log('[RegistersStore] Register payment_processor_ids:', registersData?.map(r => ({ name: r.register_name, payment_processor_id: r.payment_processor_id, dejavoo_config_id: r.dejavoo_config_id })))
-
       // Get all location IDs from registers
       const locationIds = [...new Set(registersData?.map(r => r.location_id) || [])]
-      console.log('[RegistersStore] Location IDs:', locationIds)
 
-      // Fetch ALL terminal configs for these locations (not just linked ones)
-      let terminalsMap: Record<string, TerminalConfig> = {}
-      let terminalsByLocation: Record<string, TerminalConfig[]> = {}
+      // Fetch ALL payment processors for these locations (Dejavoo only for terminals)
+      let processorsMap: Record<string, PaymentProcessor> = {}
+      let processorsByLocation: Record<string, PaymentProcessor[]> = {}
 
       if (locationIds.length > 0) {
-        const { data: terminalsData, error: terminalsError } = await supabase
-          .from('dejavoo_terminal_configs')
+        const { data: processorsData, error: processorsError } = await supabase
+          .from('payment_processors')
           .select('*')
+          .eq('vendor_id', vendorId)
           .in('location_id', locationIds)
+          .eq('processor_type', 'dejavoo')
 
-        if (terminalsError) throw terminalsError
-
-        console.log('[RegistersStore] All terminals for locations:', terminalsData)
+        if (processorsError) throw processorsError
 
         // Map by ID for linked lookups
-        terminalsMap = (terminalsData || []).reduce((acc, t) => {
-          acc[t.id] = t
+        processorsMap = (processorsData || []).reduce((acc, p) => {
+          acc[p.id] = p
           return acc
-        }, {} as Record<string, TerminalConfig>)
+        }, {} as Record<string, PaymentProcessor>)
 
-        // Also group by location for available terminals
-        terminalsByLocation = (terminalsData || []).reduce((acc, t) => {
-          if (!acc[t.location_id]) acc[t.location_id] = []
-          acc[t.location_id].push(t)
+        // Also group by location for available processors
+        processorsByLocation = (processorsData || []).reduce((acc, p) => {
+          const locId = p.location_id
+          if (locId) {
+            if (!acc[locId]) acc[locId] = []
+            acc[locId].push(p)
+          }
           return acc
-        }, {} as Record<string, TerminalConfig[]>)
+        }, {} as Record<string, PaymentProcessor[]>)
       }
-
-      console.log('[RegistersStore] Terminals map:', terminalsMap)
-      console.log('[RegistersStore] Terminals by location:', terminalsByLocation)
 
       // Combine data
       const registers: Register[] = (registersData || []).map(r => ({
@@ -178,10 +171,10 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
         allow_refunds: r.allow_refunds ?? true,
         allow_voids: r.allow_voids ?? false,
         location: r.locations,
-        terminal: r.dejavoo_config_id ? terminalsMap[r.dejavoo_config_id] : null,
+        processor: r.payment_processor_id ? processorsMap[r.payment_processor_id] || null : null,
       }))
 
-      set({ registers, terminalsByLocation, isLoading: false })
+      set({ registers, processorsByLocation, isLoading: false })
     } catch (err) {
       console.error('[RegistersStore] Load error:', err)
       set({
@@ -224,7 +217,7 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
           allow_refunds: newRegister.allow_refunds ?? true,
           allow_voids: newRegister.allow_voids ?? false,
           location: newRegister.locations,
-          terminal: null,
+          processor: null,
         }].sort((a, b) => {
           if (a.location_id !== b.location_id) return a.location_id.localeCompare(b.location_id)
           return a.register_number.localeCompare(b.register_number)
@@ -273,17 +266,6 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
 
   deleteRegister: async (registerId: string) => {
     try {
-      const register = get().registers.find(r => r.id === registerId)
-
-      // Delete terminal config if exists
-      if (register?.dejavoo_config_id) {
-        await supabase
-          .from('dejavoo_terminal_configs')
-          .delete()
-          .eq('id', register.dejavoo_config_id)
-      }
-
-      // Delete register
       const { error } = await supabase
         .from('pos_registers')
         .delete()
@@ -306,174 +288,114 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
     }
   },
 
-  linkTerminal: async (registerId: string, terminalId: string) => {
+  linkProcessor: async (registerId: string, processorId: string) => {
     try {
       const { error } = await supabase
         .from('pos_registers')
         .update({
-          dejavoo_config_id: terminalId,
+          payment_processor_id: processorId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', registerId)
 
       if (error) throw error
 
-      // Get terminal from state
-      const terminal = Object.values(get().terminalsByLocation)
+      // Get processor from state
+      const processor = Object.values(get().processorsByLocation)
         .flat()
-        .find(t => t.id === terminalId)
+        .find(p => p.id === processorId)
 
       // Update local state
       set(state => ({
         registers: state.registers.map(r =>
           r.id === registerId
-            ? { ...r, dejavoo_config_id: terminalId, terminal: terminal || null }
+            ? { ...r, payment_processor_id: processorId, processor: processor || null }
             : r
         ),
       }))
 
       return { success: true }
     } catch (err) {
-      console.error('[RegistersStore] Link terminal error:', err)
+      console.error('[RegistersStore] Link processor error:', err)
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to link terminal',
+        error: err instanceof Error ? err.message : 'Failed to link processor',
       }
     }
   },
 
-  configureTerminal: async (registerId: string, locationId: string, data: TerminalFormData) => {
+  unlinkProcessor: async (registerId: string) => {
     try {
-      const register = get().registers.find(r => r.id === registerId)
-
-      // If register already has a terminal, update it
-      if (register?.dejavoo_config_id) {
-        const { error } = await supabase
-          .from('dejavoo_terminal_configs')
-          .update({
-            merchant_id: data.merchant_id,
-            authentication_code: data.authentication_code,
-            v_number: data.v_number,
-            tpn: data.tpn || null,
-            store_number: data.store_number,
-            terminal_number: data.terminal_number,
-            hc_pos_id: data.hc_pos_id,
-            model: data.model || null,
-            manufacturer: data.manufacturer || null,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', register.dejavoo_config_id)
-
-        if (error) throw error
-
-        // Update local state
-        set(state => ({
-          registers: state.registers.map(r =>
-            r.id === registerId
-              ? {
-                  ...r,
-                  terminal: r.terminal ? { ...r.terminal, ...data } : null,
-                }
-              : r
-          ),
-        }))
-      } else {
-        // Create new terminal config
-        const { data: newTerminal, error: terminalError } = await supabase
-          .from('dejavoo_terminal_configs')
-          .insert({
-            location_id: locationId,
-            merchant_id: data.merchant_id,
-            authentication_code: data.authentication_code,
-            v_number: data.v_number,
-            tpn: data.tpn || null,
-            store_number: data.store_number,
-            terminal_number: data.terminal_number,
-            hc_pos_id: data.hc_pos_id,
-            model: data.model || null,
-            manufacturer: data.manufacturer || null,
-            location_number: data.store_number,
-            is_active: true,
-          })
-          .select()
-          .single()
-
-        if (terminalError) throw terminalError
-
-        // Link terminal to register
-        const { error: linkError } = await supabase
-          .from('pos_registers')
-          .update({
-            dejavoo_config_id: newTerminal.id,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', registerId)
-
-        if (linkError) throw linkError
-
-        // Update local state
-        set(state => ({
-          registers: state.registers.map(r =>
-            r.id === registerId
-              ? {
-                  ...r,
-                  dejavoo_config_id: newTerminal.id,
-                  terminal: newTerminal,
-                }
-              : r
-          ),
-        }))
-      }
-
-      return { success: true }
-    } catch (err) {
-      console.error('[RegistersStore] Configure terminal error:', err)
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Failed to configure terminal',
-      }
-    }
-  },
-
-  removeTerminal: async (registerId: string, terminalId: string) => {
-    try {
-      // Unlink from register first
-      const { error: unlinkError } = await supabase
+      const { error } = await supabase
         .from('pos_registers')
         .update({
-          dejavoo_config_id: null,
+          payment_processor_id: null,
           updated_at: new Date().toISOString(),
         })
         .eq('id', registerId)
 
-      if (unlinkError) throw unlinkError
-
-      // Delete terminal config
-      const { error: deleteError } = await supabase
-        .from('dejavoo_terminal_configs')
-        .delete()
-        .eq('id', terminalId)
-
-      if (deleteError) throw deleteError
+      if (error) throw error
 
       // Update local state
       set(state => ({
         registers: state.registers.map(r =>
           r.id === registerId
-            ? { ...r, dejavoo_config_id: null, terminal: null }
+            ? { ...r, payment_processor_id: null, processor: null }
             : r
         ),
       }))
 
       return { success: true }
     } catch (err) {
-      console.error('[RegistersStore] Remove terminal error:', err)
+      console.error('[RegistersStore] Unlink processor error:', err)
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to remove terminal',
+        error: err instanceof Error ? err.message : 'Failed to unlink processor',
       }
     }
   },
 
-  reset: () => set({ registers: [], terminalsByLocation: {}, isLoading: false, error: null }),
+  createProcessor: async (vendorId: string, locationId: string, data: ProcessorFormData) => {
+    try {
+      const { data: newProcessor, error } = await supabase
+        .from('payment_processors')
+        .insert({
+          vendor_id: vendorId,
+          location_id: locationId,
+          processor_type: data.processor_type,
+          processor_name: data.processor_name,
+          environment: data.environment,
+          dejavoo_merchant_id: data.dejavoo_merchant_id,
+          dejavoo_authkey: data.dejavoo_authkey,
+          dejavoo_v_number: data.dejavoo_v_number,
+          dejavoo_tpn: data.dejavoo_tpn || null,
+          dejavoo_store_number: data.dejavoo_store_number,
+          dejavoo_register_id: data.dejavoo_register_id,
+          is_active: true,
+          is_default: false,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // Add to processorsByLocation
+      set(state => {
+        const updated = { ...state.processorsByLocation }
+        if (!updated[locationId]) updated[locationId] = []
+        updated[locationId].push(newProcessor)
+        return { processorsByLocation: updated }
+      })
+
+      return { success: true }
+    } catch (err) {
+      console.error('[RegistersStore] Create processor error:', err)
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Failed to create processor',
+      }
+    }
+  },
+
+  reset: () => set({ registers: [], processorsByLocation: {}, isLoading: false, error: null }),
 }))

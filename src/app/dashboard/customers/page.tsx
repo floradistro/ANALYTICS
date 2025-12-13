@@ -428,12 +428,12 @@ export default function CustomersPage() {
                       <div className="flex items-center gap-2 lg:gap-3">
                         <div className="w-8 h-8 lg:w-10 lg:h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center flex-shrink-0">
                           <span className="text-xs lg:text-sm font-light text-slate-400">
-                            {customer.first_name[0]}{customer.last_name[0]}
+                            {customer.first_name?.[0] || ''}{customer.last_name?.[0] || ''}
                           </span>
                         </div>
                         <div className="min-w-0">
                           <p className="text-xs lg:text-sm font-light text-white truncate">
-                            {customer.first_name} {customer.last_name}
+                            {customer.first_name || ''} {customer.last_name || ''}
                           </p>
                           {customer.vendor_customer_number && (
                             <p className="text-[10px] lg:text-xs text-zinc-600">#{customer.vendor_customer_number}</p>
