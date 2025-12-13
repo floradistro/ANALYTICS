@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { useAuthStore } from '@/stores/auth.store'
@@ -13,7 +13,12 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isLoading, initialize } = useAuthStore()
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  // Auto-collapse sidebar on map page for immersive experience
+  const isMapPage = pathname === '/dashboard/map'
 
   useEffect(() => {
     initialize()
@@ -24,6 +29,13 @@ export default function DashboardLayout({
       router.push('/login')
     }
   }, [isLoading, user, router])
+
+  // Auto-collapse sidebar when entering map page
+  useEffect(() => {
+    if (isMapPage) {
+      setSidebarCollapsed(true)
+    }
+  }, [isMapPage])
 
   if (isLoading) {
     return (
@@ -39,10 +51,14 @@ export default function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-black">
-      <Sidebar />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
       <div className="flex-1 flex flex-col">
-        <Header />
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        {/* Hide header on map page for full immersion */}
+        {!isMapPage && <Header />}
+        <main className={`flex-1 ${isMapPage ? 'p-0' : 'p-4 lg:p-6'} overflow-auto`}>
           {children}
         </main>
       </div>

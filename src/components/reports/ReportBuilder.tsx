@@ -24,7 +24,9 @@ import {
   ChevronUp,
   Loader2,
   X,
+  FileText,
 } from 'lucide-react'
+import { generatePDFReport, type ReportColumn as PDFColumn } from '@/lib/pdf-export'
 
 // ============ TYPES ============
 
@@ -150,8 +152,9 @@ const getOrderChannel = (order: { pickup_location_id: string | null; order_type:
 // ============ COMPONENT ============
 
 export default function ReportBuilder() {
-  const { vendorId } = useAuthStore()
+  const { vendorId, vendor } = useAuthStore()
   const [config, setConfig] = useState<ReportConfig>(DEFAULT_CONFIG)
+  const [exportingPDF, setExportingPDF] = useState(false)
   const [results, setResults] = useState<ReportRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -403,18 +406,23 @@ export default function ReportBuilder() {
             const agg = aggregationMap.get(groupKey)!
             agg.orders.add(order.id)
 
-            // subtotal in DB is AFTER discounts (net), so:
-            // Net = subtotal
-            // Gross = subtotal + discounts (add back to get original price)
-            // Total = total_amount (what was charged)
-            const subtotal = parseFloat(order.subtotal || 0)  // This is already NET
-            const discounts =
-              parseFloat(order.discount_amount || 0) +
-              parseFloat(order.affiliate_discount_amount || 0) +
-              parseFloat(order.metadata?.loyalty_discount_amount || 0) +
-              parseFloat(order.metadata?.campaign_discount_amount || 0)
+            // subtotal in DB is GROSS (pre-discount)
+            // Formula: total_amount = subtotal - discount_amount + tax_amount + shipping_cost
+            // So: Gross = subtotal
+            //     Net = subtotal - discounts
+            //     Total = total_amount
+            const subtotal = parseFloat(order.subtotal || 0)  // This is GROSS (pre-discount)
 
-            agg.gross_sales += subtotal + discounts  // Add discounts back to get gross
+            // Avoid double-counting: use discount_amount if populated, else use metadata
+            let discounts = parseFloat(order.discount_amount || 0)
+            if (discounts === 0) {
+              discounts =
+                parseFloat(order.metadata?.loyalty_discount_amount || 0) +
+                parseFloat(order.metadata?.campaign_discount_amount || 0) +
+                parseFloat(order.affiliate_discount_amount || 0)
+            }
+
+            agg.gross_sales += subtotal  // Gross is the subtotal (pre-discount)
             agg.discounts += discounts
             agg.tax += parseFloat(order.tax_amount || 0)
             agg.total += parseFloat(order.total_amount || 0)
@@ -495,8 +503,8 @@ export default function ReportBuilder() {
 
         const validOrderIds = Array.from(ordersMap.keys())
 
-        // Fetch line items in batches (Supabase has limits on IN clause)
-        const batchSize = 100
+        // Fetch line items in batches (Supabase has URL length limits with UUIDs)
+        const batchSize = 20
         for (let i = 0; i < validOrderIds.length; i += batchSize) {
           const batchIds = validOrderIds.slice(i, i + batchSize)
 
@@ -731,6 +739,78 @@ export default function ReportBuilder() {
     URL.revokeObjectURL(url)
   }, [results])
 
+  const exportPDF = useCallback(async () => {
+    if (results.length === 0 || !vendor) return
+
+    setExportingPDF(true)
+    try {
+      const headers = Object.keys(results[0])
+
+      // Build columns with appropriate formatting
+      const pdfColumns: PDFColumn[] = headers.map((header) => {
+        const isCurrency = ['Gross Sales', 'Discounts', 'Net Sales', 'Tax', 'Total', 'Avg Order Value'].includes(header)
+        const isNumber = ['Orders', 'Quantity', 'Line Items'].includes(header)
+        const isPercent = header.includes('%')
+
+        return {
+          header,
+          key: header,
+          align: isCurrency || isNumber || isPercent ? 'right' : 'left',
+          format: isCurrency ? 'currency' : isNumber ? 'number' : isPercent ? 'percent' : 'text',
+        }
+      })
+
+      // Calculate totals
+      const totalsRow: Record<string, any> = {}
+      headers.forEach((header, idx) => {
+        if (idx === 0) return
+        const firstVal = results[0][header]
+        if (typeof firstVal === 'number') {
+          const isAvg = header.includes('Avg') || header.includes('/Order')
+          const sum = results.reduce((acc, row) => acc + (row[header] as number), 0)
+          totalsRow[header] = isAvg ? sum / results.length : sum
+        }
+      })
+
+      // Build title based on dimensions
+      const dimensionLabels = config.dimensions
+        .map((d) => DIMENSION_OPTIONS.find((opt) => opt.value === d)?.label)
+        .filter(Boolean)
+        .join(' by ')
+
+      await generatePDFReport({
+        title: `Sales Report${dimensionLabels ? ` by ${dimensionLabels}` : ''}`,
+        subtitle: `${config.dateGranularity.charAt(0).toUpperCase() + config.dateGranularity.slice(1)} breakdown`,
+        vendor: {
+          storeName: vendor.store_name || 'Store',
+          logoUrl: vendor.logo_url,
+        },
+        dateRange: config.dateRange,
+        sections: [
+          {
+            title: 'Report Data',
+            subtitle: `${results.length} rows`,
+            columns: pdfColumns,
+            data: results.map((row) => {
+              const obj: Record<string, any> = {}
+              headers.forEach((h) => {
+                obj[h] = row[h]
+              })
+              return obj
+            }),
+            showTotals: true,
+            totalsRow,
+          },
+        ],
+        footer: 'Confidential - For internal use only',
+      })
+    } catch (err) {
+      console.error('PDF export error:', err)
+    } finally {
+      setExportingPDF(false)
+    }
+  }, [results, vendor, config])
+
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -756,15 +836,25 @@ export default function ReportBuilder() {
           <h2 className="text-lg font-light text-white tracking-wide">Report Builder</h2>
           <p className="text-zinc-500 text-sm mt-1">Create custom reports by selecting dimensions and metrics</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {results.length > 0 && (
-            <button
-              onClick={exportCSV}
-              className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm"
-            >
-              <Download className="w-4 h-4" />
-              Export CSV
-            </button>
+            <>
+              <button
+                onClick={exportPDF}
+                disabled={exportingPDF}
+                className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 transition-colors text-sm disabled:opacity-50"
+              >
+                {exportingPDF ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                Export PDF
+              </button>
+              <button
+                onClick={exportCSV}
+                className="flex items-center gap-2 px-4 py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-sm"
+              >
+                <Download className="w-4 h-4" />
+                CSV
+              </button>
+            </>
           )}
           <button
             onClick={runReport}
@@ -874,28 +964,32 @@ export default function ReportBuilder() {
               <label className="text-xs text-zinc-500 block mb-1">Start Date</label>
               <input
                 type="date"
-                value={format(config.dateRange.start, 'yyyy-MM-dd')}
-                onChange={(e) =>
+                value={`${config.dateRange.start.getFullYear()}-${String(config.dateRange.start.getMonth() + 1).padStart(2, '0')}-${String(config.dateRange.start.getDate()).padStart(2, '0')}`}
+                onChange={(e) => {
+                  const [y, m, d] = e.target.value.split('-').map(Number)
                   setConfig((prev) => ({
                     ...prev,
-                    dateRange: { ...prev.dateRange, start: new Date(e.target.value) },
+                    dateRange: { ...prev.dateRange, start: new Date(y, m - 1, d, 0, 0, 0, 0) },
                   }))
-                }
-                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-zinc-700"
+                }}
+                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-zinc-700 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-80 [&::-webkit-calendar-picker-indicator]:hover:opacity-100"
+                style={{ colorScheme: 'dark' }}
               />
             </div>
             <div>
               <label className="text-xs text-zinc-500 block mb-1">End Date</label>
               <input
                 type="date"
-                value={format(config.dateRange.end, 'yyyy-MM-dd')}
-                onChange={(e) =>
+                value={`${config.dateRange.end.getFullYear()}-${String(config.dateRange.end.getMonth() + 1).padStart(2, '0')}-${String(config.dateRange.end.getDate()).padStart(2, '0')}`}
+                onChange={(e) => {
+                  const [y, m, d] = e.target.value.split('-').map(Number)
                   setConfig((prev) => ({
                     ...prev,
-                    dateRange: { ...prev.dateRange, end: new Date(e.target.value) },
+                    dateRange: { ...prev.dateRange, end: new Date(y, m - 1, d, 23, 59, 59, 999) },
                   }))
-                }
-                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-zinc-700"
+                }}
+                className="w-full px-3 py-2 bg-zinc-900 border border-zinc-800 text-white text-sm focus:outline-none focus:border-zinc-700 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-80 [&::-webkit-calendar-picker-indicator]:hover:opacity-100"
+                style={{ colorScheme: 'dark' }}
               />
             </div>
           </div>

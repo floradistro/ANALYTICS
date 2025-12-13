@@ -36,12 +36,19 @@ export default function CustomersPage() {
   })
   const pageSize = 20
 
+  // Fetch customers on page change
   useEffect(() => {
     if (vendorId) {
       fetchCustomers()
-      fetchCustomerStats()
     }
   }, [vendorId, page])
+
+  // Fetch global stats only once on mount (not on page change)
+  useEffect(() => {
+    if (vendorId) {
+      fetchCustomerStats()
+    }
+  }, [vendorId])
 
   const fetchCustomers = async () => {
     if (!vendorId) return
@@ -73,6 +80,7 @@ export default function CustomersPage() {
             .select('customer_id, total_amount')
             .in('customer_id', customerIds)
             .eq('payment_status', 'paid')
+            .neq('status', 'cancelled')
             .range(orderPage * orderPageSize, (orderPage + 1) * orderPageSize - 1)
 
           if (orderError) throw orderError
@@ -152,8 +160,8 @@ export default function CustomersPage() {
           .from('orders')
           .select('customer_id, total_amount')
           .eq('vendor_id', vendorId)
-          .eq('payment_status', 'paid')  // Only count paid orders for LTV
-          .neq('status', 'cancelled')     // Exclude cancelled
+          .eq('payment_status', 'paid')
+          .neq('status', 'cancelled')
           .not('customer_id', 'is', null)
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -267,6 +275,7 @@ export default function CustomersPage() {
             .select('customer_id, total_amount')
             .in('customer_id', batchIds)
             .eq('payment_status', 'paid')
+            .neq('status', 'cancelled')
             .range(orderPage * 1000, (orderPage + 1) * 1000 - 1)
 
           if (orderStats && orderStats.length > 0) {

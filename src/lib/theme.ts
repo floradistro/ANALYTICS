@@ -78,6 +78,51 @@ export const colors = {
 export const chartSeriesColors = [...colors.chart.series]
 export const chartSeriesBlueColors = [...colors.chart.seriesBlue]
 
+// Gradient definitions for Nivo charts
+export const chartGradients = {
+  // Bar chart gradient (vertical)
+  barGradient: {
+    id: 'barGradient',
+    type: 'linearGradient' as const,
+    colors: [
+      { offset: 0, color: '#94a3b8', opacity: 0.9 },
+      { offset: 100, color: '#64748b', opacity: 0.7 },
+    ],
+  },
+  // Area chart gradient (vertical fade)
+  areaGradient: {
+    id: 'areaGradient',
+    type: 'linearGradient' as const,
+    colors: [
+      { offset: 0, color: '#94a3b8', opacity: 0.4 },
+      { offset: 100, color: '#94a3b8', opacity: 0.02 },
+    ],
+  },
+  // Premium bar gradient (subtle glow effect)
+  premiumBar: {
+    id: 'premiumBar',
+    type: 'linearGradient' as const,
+    colors: [
+      { offset: 0, color: '#cbd5e1', opacity: 0.95 },
+      { offset: 50, color: '#94a3b8', opacity: 0.85 },
+      { offset: 100, color: '#64748b', opacity: 0.75 },
+    ],
+  },
+  // Horizontal bar gradient
+  horizontalBar: {
+    id: 'horizontalBar',
+    type: 'linearGradient' as const,
+    x1: '0%',
+    y1: '0%',
+    x2: '100%',
+    y2: '0%',
+    colors: [
+      { offset: 0, color: '#475569', opacity: 0.8 },
+      { offset: 100, color: '#94a3b8', opacity: 0.95 },
+    ],
+  },
+}
+
 // Nivo theme configuration
 export const nivoTheme = {
   background: 'transparent',
@@ -116,6 +161,8 @@ export const nivoTheme = {
     line: {
       stroke: colors.chart.grid,
       strokeWidth: 1,
+      strokeDasharray: '4 4',
+      strokeOpacity: 0.5,
     },
   },
   legends: {

@@ -11,7 +11,7 @@ import {
   Target, RefreshCw
 } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
-import { nivoTheme, colors } from '@/lib/theme'
+import { nivoTheme, colors, chartGradients } from '@/lib/theme'
 
 interface VisitorRecord {
   id: string
@@ -151,9 +151,64 @@ export default function WebAnalyticsPage() {
 
   useEffect(() => {
     fetchAnalytics()
-    const interval = setInterval(fetchAnalytics, 30000)
+    // Poll every 10 seconds for near-realtime updates
+    const interval = setInterval(fetchAnalytics, 10000)
     return () => clearInterval(interval)
   }, [fetchAnalytics])
+
+  // Supabase realtime subscription for instant event updates
+  useEffect(() => {
+    if (!vendorId) return
+
+    const channel = supabase
+      .channel('analytics-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'analytics_events',
+          filter: `vendor_id=eq.${vendorId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] New event:', payload.new)
+          // Add new event to state immediately
+          setEvents((prev) => [payload.new as EventRecord, ...prev])
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'website_visitors',
+          filter: `vendor_id=eq.${vendorId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] New visitor:', payload.new)
+          setVisitors((prev) => [payload.new as VisitorRecord, ...prev])
+          setRealtimeVisitors((prev) => prev + 1)
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'page_views',
+          filter: `vendor_id=eq.${vendorId}`,
+        },
+        (payload) => {
+          console.log('[Realtime] New page view:', payload.new)
+          setPageViews((prev) => [payload.new as PageViewRecord, ...prev])
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [vendorId])
 
   // Calculate metrics
   const totalVisitors = visitors.length
@@ -422,22 +477,22 @@ export default function WebAnalyticsPage() {
               keys={['views']}
               indexBy="hour"
               theme={nivoTheme}
-              margin={{ top: 10, right: 10, bottom: 30, left: 40 }}
-              padding={0.2}
-              colors={[colors.chart.seriesBlue[1]]}
-              borderRadius={2}
+              margin={{ top: 20, right: 20, bottom: 40, left: 50 }}
+              padding={0.4}
+              colors={['url(#barGradient)']}
+              borderRadius={6}
               enableGridX={false}
               enableGridY={true}
+              gridYValues={5}
               axisTop={null}
               axisRight={null}
               axisBottom={{
                 tickSize: 0,
-                tickPadding: 8,
+                tickPadding: 12,
                 tickRotation: 0,
                 format: (value) => {
                   const date = new Date(String(value))
                   if (showHourly) {
-                    // Show hour format for hourly view
                     const hour = date.getHours()
                     if (hour === 0) {
                       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -452,20 +507,33 @@ export default function WebAnalyticsPage() {
               }}
               axisLeft={{
                 tickSize: 0,
-                tickPadding: 8,
+                tickPadding: 12,
                 tickValues: 5,
               }}
               enableLabel={false}
+              defs={[
+                {
+                  id: 'barGradient',
+                  type: 'linearGradient',
+                  colors: [
+                    { offset: 0, color: '#cbd5e1', opacity: 0.95 },
+                    { offset: 100, color: '#64748b', opacity: 0.7 },
+                  ],
+                },
+              ]}
+              fill={[{ match: '*', id: 'barGradient' }]}
               tooltip={({ data, value }) => (
                 <div
                   style={{
-                    background: colors.chart.tooltip.bg,
+                    background: 'rgba(24, 24, 27, 0.95)',
+                    backdropFilter: 'blur(8px)',
                     border: `1px solid ${colors.chart.tooltip.border}`,
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     padding: '12px 16px',
+                    boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
                   }}
                 >
-                  <div className="text-xs text-zinc-500 mb-1">
+                  <div className="text-xs text-zinc-400 mb-1.5">
                     {showHourly
                       ? new Date(String(data.hour)).toLocaleString('en-US', {
                           month: 'short',
@@ -474,13 +542,14 @@ export default function WebAnalyticsPage() {
                           minute: '2-digit'
                         })
                       : new Date(String(data.hour)).toLocaleDateString('en-US', {
+                          weekday: 'short',
                           month: 'short',
                           day: 'numeric'
                         })
                     }
                   </div>
-                  <div className="text-sm font-medium text-zinc-100">
-                    {value} page views
+                  <div className="text-base font-medium text-white">
+                    {value.toLocaleString()} <span className="text-zinc-400 text-sm font-normal">views</span>
                   </div>
                 </div>
               )}
@@ -619,6 +688,92 @@ export default function WebAnalyticsPage() {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Live Activity Feed */}
+      <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
+        <h3 className="text-sm font-light text-zinc-200 mb-4 tracking-wide uppercase flex items-center gap-2">
+          <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          Live Activity Feed
+        </h3>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {(() => {
+            // Combine events and key page views into a single feed
+            // Prioritize events over page views, dedupe by path
+            const seenPaths = new Set<string>()
+            const recentPageViews = pageViews
+              .slice(0, 50)
+              .filter(pv => {
+                try {
+                  const path = new URL(pv.page_url || '').pathname
+                  // Skip duplicate paths and common pages
+                  if (seenPaths.has(path)) return false
+                  seenPaths.add(path)
+                  return true
+                } catch {
+                  return false
+                }
+              })
+              .slice(0, 8)
+
+            const combined = [
+              ...recentPageViews.map(pv => ({
+                id: pv.id,
+                type: 'page_view' as const,
+                label: (() => {
+                  try {
+                    return new URL(pv.page_url || '').pathname
+                  } catch {
+                    return pv.page_url || '/'
+                  }
+                })(),
+                time: new Date(pv.created_at),
+                revenue: null,
+              })),
+              ...events.slice(0, 10).map(ev => ({
+                id: ev.id,
+                type: ev.event_name as string,
+                label: ev.event_properties?.productName || ev.event_properties?.product_name || '',
+                time: new Date(ev.created_at),
+                revenue: ev.revenue,
+              })),
+            ].sort((a, b) => b.time.getTime() - a.time.getTime()).slice(0, 10)
+
+            if (combined.length === 0) {
+              return <p className="text-zinc-500 text-sm text-center py-4">Waiting for activity...</p>
+            }
+
+            return combined.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center justify-between py-2 px-3 bg-zinc-900/50 border border-zinc-800/50 rounded-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`px-2 py-0.5 text-xs rounded ${
+                    item.type === 'purchase' ? 'bg-green-900/50 text-green-400' :
+                    item.type === 'add_to_cart' ? 'bg-blue-900/50 text-blue-400' :
+                    item.type === 'view_product' ? 'bg-purple-900/50 text-purple-400' :
+                    item.type === 'page_view' ? 'bg-zinc-800 text-zinc-400' :
+                    'bg-zinc-800 text-zinc-400'
+                  }`}>
+                    {item.type.replace(/_/g, ' ')}
+                  </span>
+                  <span className="text-sm text-zinc-400 truncate max-w-[200px]">
+                    {item.label}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {item.revenue && (
+                    <span className="text-sm text-green-400">${item.revenue.toFixed(2)}</span>
+                  )}
+                  <span className="text-xs text-zinc-600">
+                    {item.time.toLocaleTimeString()}
+                  </span>
+                </div>
+              </div>
+            ))
+          })()}
         </div>
       </div>
 

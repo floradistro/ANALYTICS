@@ -63,25 +63,16 @@ export function Header() {
 
   const handleCustomDateChange = (field: 'start' | 'end', value: string) => {
     if (!value) return
-    const newDate = new Date(value + 'T00:00:00')
-    if (isNaN(newDate.getTime())) return
-
+    const [y, m, d] = value.split('-').map(Number)
     if (field === 'start') {
-      setDateRange(startOfDay(newDate), dateRange.end)
+      setDateRange(new Date(y, m - 1, d, 0, 0, 0, 0), dateRange.end)
     } else {
-      setDateRange(dateRange.start, endOfDay(newDate))
+      setDateRange(dateRange.start, new Date(y, m - 1, d, 23, 59, 59, 999))
     }
   }
 
   const formatDateValue = (date: Date): string => {
-    try {
-      if (!date || isNaN(date.getTime())) {
-        return format(new Date(), 'yyyy-MM-dd')
-      }
-      return format(date, 'yyyy-MM-dd')
-    } catch {
-      return format(new Date(), 'yyyy-MM-dd')
-    }
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
   }
 
   return (
@@ -125,21 +116,28 @@ export function Header() {
 
           {/* Show date range display or custom inputs */}
           {showCustom ? (
-            <div className="flex items-center gap-1.5 lg:gap-2 bg-zinc-950 border border-zinc-800 px-2 lg:px-3 py-1.5 lg:py-2">
-              <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500 flex-shrink-0 hidden sm:block" />
+            <div className="flex items-center gap-2">
               <input
                 type="date"
                 value={formatDateValue(dateRange.start)}
                 onChange={(e) => handleCustomDateChange('start', e.target.value)}
-                className="bg-transparent text-xs lg:text-sm text-white focus:outline-none w-[100px] lg:w-[120px]"
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-white text-xs lg:text-sm focus:outline-none focus:border-zinc-700 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-80 [&::-webkit-calendar-picker-indicator]:hover:opacity-100"
+                style={{ colorScheme: 'dark' }}
               />
-              <span className="text-zinc-600 text-xs">-</span>
+              <span className="text-zinc-500 text-xs">to</span>
               <input
                 type="date"
                 value={formatDateValue(dateRange.end)}
                 onChange={(e) => handleCustomDateChange('end', e.target.value)}
-                className="bg-transparent text-xs lg:text-sm text-white focus:outline-none w-[100px] lg:w-[120px]"
+                className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-white text-xs lg:text-sm focus:outline-none focus:border-zinc-700 cursor-pointer [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:brightness-0 [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-80 [&::-webkit-calendar-picker-indicator]:hover:opacity-100"
+                style={{ colorScheme: 'dark' }}
               />
+              <button
+                onClick={() => setShowCustom(false)}
+                className="text-xs text-zinc-500 hover:text-white ml-1"
+              >
+                Done
+              </button>
             </div>
           ) : (
             <span className="text-xs lg:text-sm text-zinc-500 font-light hidden sm:inline whitespace-nowrap">

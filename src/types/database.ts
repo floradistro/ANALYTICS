@@ -135,6 +135,8 @@ export interface Database {
           total_amount: number
           customer_id: string | null
           pickup_location_id: string | null
+          payment_method: string | null
+          notes: string | null
           shipping_name: string | null
           shipping_address_line1: string | null
           shipping_address_line2: string | null

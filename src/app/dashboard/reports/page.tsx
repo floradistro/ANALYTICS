@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
+import { useOrdersStore, type Order } from '@/stores/orders.store'
 import { supabase } from '@/lib/supabase'
-import { getDateRangeForQuery } from '@/lib/date-utils'
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns'
+import { format } from 'date-fns'
 import {
   DollarSign,
   Receipt,
@@ -17,7 +17,9 @@ import {
   Calendar,
   LayoutGrid,
   FileText,
+  Loader2,
 } from 'lucide-react'
+import { exportFinancialReportPDF } from '@/lib/pdf-export'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
 import { nivoTheme, colors } from '@/lib/theme'
@@ -130,510 +132,333 @@ const formatPaymentMethod = (method: string): string => {
 }
 
 export default function FinancialReportsPage() {
-  const { vendorId } = useAuthStore()
+  const { vendorId, vendor } = useAuthStore()
   const { dateRange, filters } = useDashboardStore()
-  const [monthlyReports, setMonthlyReports] = useState<MonthlyReport[]>([])
-  const [paymentBreakdown, setPaymentBreakdown] = useState<PaymentBreakdown[]>([])
-  const [paymentStats, setPaymentStats] = useState<PaymentStats | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [reportPeriod, setReportPeriod] = useState<6 | 12>(6)
-  const [totals, setTotals] = useState({
-    grossRevenue: 0,
-    taxCollected: 0,
-    discountsGiven: 0,
-    netRevenue: 0,
-    totalOrders: 0,
-    avgOrderValue: 0,
-  })
+  const [exportingPDF, setExportingPDF] = useState(false)
+
+  // Use centralized orders store - SINGLE SOURCE OF TRUTH
+  // Get the raw orders array (changes when data is fetched) to trigger re-renders
+  const orders = useOrdersStore((state) => state.orders)
+  const fetchOrders = useOrdersStore((state) => state.fetchOrders)
+  const ordersLoading = useOrdersStore((state) => state.isLoading)
+
   const [taxByLocation, setTaxByLocation] = useState<TaxByLocation[]>([])
   const [taxByState, setTaxByState] = useState<TaxByState[]>([])
   const [taxByProcessor, setTaxByProcessor] = useState<TaxByProcessor[]>([])
-  const [discountBreakdown, setDiscountBreakdown] = useState<DiscountBreakdown[]>([])
-  const [taxReportMonth, setTaxReportMonth] = useState<string>('all') // 'all' or 'YYYY-MM'
   const [activeTab, setActiveTab] = useState<ReportTab>('builder')
+  const [locationsLoading, setLocationsLoading] = useState(false)
 
-  // Generate list of months for the tax report filter (last 24 months)
-  const availableMonths = Array.from({ length: 24 }, (_, i) => {
-    const date = subMonths(new Date(), i)
-    return {
-      value: format(date, 'yyyy-MM'),
-      label: format(date, 'MMMM yyyy'),
-    }
-  })
+  // ========== COMPUTED VALUES FROM ORDERS STORE ==========
+  // All financial data is computed from paid orders - single source of truth
 
-  const fetchMonthlyReports = useCallback(async () => {
-    if (!vendorId) return
-    setLoading(true)
+  // Filter to paid orders with dashboard filters applied
+  const paidOrders = useMemo(() => {
+    return orders.filter((order) => {
+      // Must be paid and not cancelled
+      if (order.payment_status !== 'paid' || order.status === 'cancelled') return false
 
-    try {
-      const reports: MonthlyReport[] = []
-      const pageSize = 1000
+      // Apply order type filter
+      if (filters.orderTypes.length > 0 && !filters.orderTypes.includes(order.order_type)) {
+        return false
+      }
 
-      for (let i = reportPeriod - 1; i >= 0; i--) {
-        const date = subMonths(new Date(), i)
-        const start = startOfMonth(date)
-        const end = endOfMonth(date)
-
-        // Fetch ALL PAID orders for this month with pagination (exclude failed/pending/cancelled)
-        let allOrders: { subtotal: number; tax_amount: number; discount_amount: number; total_amount: number; metadata: any; affiliate_discount_amount: number }[] = []
-        let page = 0
-        let hasMore = true
-
-        while (hasMore) {
-          let query = supabase
-            .from('orders')
-            .select('subtotal, tax_amount, discount_amount, total_amount, metadata, affiliate_discount_amount')
-            .eq('vendor_id', vendorId)
-            .eq('payment_status', 'paid')  // Only count paid orders
-            .neq('status', 'cancelled')     // Exclude cancelled orders
-            .gte('created_at', start.toISOString())
-            .lte('created_at', end.toISOString())
-
-          // Apply filters BEFORE pagination
-          if (filters.orderTypes.length > 0) {
-            query = query.in('order_type', filters.orderTypes)
-          }
-          if (filters.locationIds.length > 0) {
-            query = query.in('pickup_location_id', filters.locationIds)
-          }
-
-          // Apply pagination AFTER all filters
-          query = query.range(page * pageSize, (page + 1) * pageSize - 1)
-
-          const { data, error } = await query
-          if (error) throw error
-
-          if (data && data.length > 0) {
-            allOrders = [...allOrders, ...data]
-            hasMore = data.length === pageSize
-          } else {
-            hasMore = false
-          }
-          page++
+      // Apply location filter
+      if (filters.locationIds.length > 0) {
+        if (!order.pickup_location_id || !filters.locationIds.includes(order.pickup_location_id)) {
+          return false
         }
+      }
 
-        const revenue = allOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0)
-        const tax = allOrders.reduce((sum, o) => sum + (o.tax_amount || 0), 0)
-        // Include ALL discount sources: discount_amount + campaign + loyalty + affiliate
-        const discounts = allOrders.reduce((sum, o) => {
-          const fieldDiscount = o.discount_amount || 0
-          const campaignDiscount = o.metadata?.campaign_discount_amount || 0
-          const loyaltyDiscount = o.metadata?.loyalty_discount_amount || 0
-          const affiliateDiscount = o.affiliate_discount_amount || 0
-          return sum + fieldDiscount + campaignDiscount + loyaltyDiscount + affiliateDiscount
-        }, 0)
-        // Net Revenue = Total - Tax (what you actually earned after tax remittance)
-        const netRevenue = revenue - tax
+      return true
+    })
+  }, [orders, filters.orderTypes, filters.locationIds])
 
-        reports.push({
-          month: format(date, 'MMM yyyy'),
-          revenue,
+  // Helper to calculate order discounts (avoiding double-counting)
+  const getOrderDiscount = useCallback((order: Order): number => {
+    const discountAmount = parseFloat(String(order.discount_amount || 0))
+    if (discountAmount > 0) return discountAmount
+    // Historical orders: use metadata
+    return (
+      parseFloat(String(order.metadata?.campaign_discount_amount || 0)) +
+      parseFloat(String(order.metadata?.loyalty_discount_amount || 0)) +
+      parseFloat(String(order.affiliate_discount_amount || 0))
+    )
+  }, [])
+
+  // Monthly reports computed from store data
+  const monthlyReports = useMemo((): MonthlyReport[] => {
+    if (paidOrders.length === 0) return []
+
+    // Group orders by month
+    const byMonth = new Map<string, Order[]>()
+    paidOrders.forEach((order) => {
+      const date = new Date(order.created_at)
+      const monthKey = format(date, 'MMM yyyy')
+      const existing = byMonth.get(monthKey) || []
+      byMonth.set(monthKey, [...existing, order])
+    })
+
+    // Convert to array and calculate metrics
+    return Array.from(byMonth.entries())
+      .map(([month, orders]) => {
+        const grossSubtotal = orders.reduce((sum, o) => sum + (o.subtotal || 0), 0)
+        const tax = orders.reduce((sum, o) => sum + (o.tax_amount || 0), 0)
+        const discounts = orders.reduce((sum, o) => sum + getOrderDiscount(o), 0)
+        return {
+          month,
+          revenue: grossSubtotal, // Gross (pre-discount)
           tax,
           discounts,
-          orders: allOrders.length,
-          netRevenue,
-        })
-      }
-
-      setMonthlyReports(reports)
-
-      // Calculate totals
-      const grossRevenue = reports.reduce((sum, r) => sum + r.revenue, 0)
-      const taxCollected = reports.reduce((sum, r) => sum + r.tax, 0)
-      const discountsGiven = reports.reduce((sum, r) => sum + r.discounts, 0)
-      const totalOrders = reports.reduce((sum, r) => sum + r.orders, 0)
-
-      setTotals({
-        grossRevenue,
-        taxCollected,
-        discountsGiven,
-        netRevenue: grossRevenue - taxCollected,
-        totalOrders,
-        avgOrderValue: totalOrders > 0 ? grossRevenue / totalOrders : 0,
-      })
-    } catch (error) {
-      console.error('Failed to fetch monthly reports:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [vendorId, reportPeriod, filters])
-
-  const fetchPaymentBreakdown = useCallback(async () => {
-    if (!vendorId) return
-
-    // Get validated date range from store - bulletproof for accounting
-    const { start, end } = getDateRangeForQuery()
-
-    try {
-      // Fetch ALL PAID orders with payment method (not checkout_attempts)
-      const pageSize = 1000
-      let allOrders: { payment_method: string; total_amount: number }[] = []
-      let page = 0
-      let hasMore = true
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('payment_method, total_amount')
-          .eq('vendor_id', vendorId)
-          .eq('payment_status', 'paid')
-          .neq('status', 'cancelled')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-
-        if (error) throw error
-
-        if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data]
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
+          orders: orders.length,
+          netRevenue: grossSubtotal - discounts, // Net (post-discount)
         }
-        page++
-      }
-
-      const methodMap = new Map<string, { count: number; amount: number }>()
-
-      allOrders.forEach((order) => {
-        const method = order.payment_method || 'Unknown'
-        const existing = methodMap.get(method) || { count: 0, amount: 0 }
-        methodMap.set(method, {
-          count: existing.count + 1,
-          amount: existing.amount + (order.total_amount || 0),
-        })
       })
+      .sort((a, b) => {
+        // Sort by date (parse month string back to date)
+        const dateA = new Date(a.month)
+        const dateB = new Date(b.month)
+        return dateA.getTime() - dateB.getTime()
+      })
+  }, [paidOrders, getOrderDiscount])
 
-      const breakdown = Array.from(methodMap.entries())
-        .map(([method, data]) => ({
-          method: formatPaymentMethod(method),
-          ...data,
-        }))
-        .sort((a, b) => b.amount - a.amount)
-
-      setPaymentBreakdown(breakdown)
-    } catch (error) {
-      console.error('Failed to fetch payment breakdown:', error)
+  // Totals computed from monthly reports
+  const totals = useMemo(() => {
+    const grossRevenue = monthlyReports.reduce((sum, r) => sum + r.revenue, 0)
+    const taxCollected = monthlyReports.reduce((sum, r) => sum + r.tax, 0)
+    const discountsGiven = monthlyReports.reduce((sum, r) => sum + r.discounts, 0)
+    const totalOrders = monthlyReports.reduce((sum, r) => sum + r.orders, 0)
+    return {
+      grossRevenue,
+      taxCollected,
+      discountsGiven,
+      netRevenue: grossRevenue - discountsGiven,
+      totalOrders,
+      avgOrderValue: totalOrders > 0 ? grossRevenue / totalOrders : 0,
     }
-  }, [vendorId, dateRange, filters])
+  }, [monthlyReports])
 
-  const fetchPaymentStats = useCallback(async () => {
+  // Payment breakdown computed from store data
+  const paymentBreakdown = useMemo((): PaymentBreakdown[] => {
+    const methodMap = new Map<string, { count: number; amount: number }>()
+
+    paidOrders.forEach((order) => {
+      const method = order.payment_method || 'Unknown'
+      const existing = methodMap.get(method) || { count: 0, amount: 0 }
+      methodMap.set(method, {
+        count: existing.count + 1,
+        amount: existing.amount + (order.total_amount || 0),
+      })
+    })
+
+    return Array.from(methodMap.entries())
+      .map(([method, data]) => ({
+        method: formatPaymentMethod(method),
+        ...data,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+  }, [paidOrders])
+
+  // Payment stats from all orders in store (including non-paid)
+  const paymentStats = useMemo((): PaymentStats | null => {
+    // Use raw orders array (excludes cancelled from store fetch)
+    if (orders.length === 0) return null
+
+    const successful = orders.filter((o) => o.payment_status === 'paid').length
+    const failed = orders.filter((o) => o.payment_status === 'failed').length
+    const pending = orders.filter((o) => o.payment_status === 'pending').length
+    const total = successful + failed + pending
+    const successRate = total > 0 ? (successful / total) * 100 : 0
+
+    return { successful, failed, pending, successRate }
+  }, [orders])
+
+  // Discount breakdown computed from store data
+  const discountBreakdown = useMemo((): DiscountBreakdown[] => {
+    let fieldDiscount = 0, fieldCount = 0
+    let campaignDiscount = 0, campaignCount = 0
+    let loyaltyDiscount = 0, loyaltyCount = 0
+    let affiliateDiscount = 0, affiliateCount = 0
+
+    paidOrders.forEach((order) => {
+      const fd = parseFloat(String(order.discount_amount || 0))
+      const cd = parseFloat(String(order.metadata?.campaign_discount_amount || 0))
+      const ld = parseFloat(String(order.metadata?.loyalty_discount_amount || 0))
+      const ad = parseFloat(String(order.affiliate_discount_amount || 0))
+
+      if (fd > 0) { fieldDiscount += fd; fieldCount++ }
+      if (cd > 0) { campaignDiscount += cd; campaignCount++ }
+      if (ld > 0) { loyaltyDiscount += ld; loyaltyCount++ }
+      if (ad > 0) { affiliateDiscount += ad; affiliateCount++ }
+    })
+
+    return [
+      { type: 'Campaign/Promo', amount: campaignDiscount, orders: campaignCount },
+      { type: 'Loyalty Points', amount: loyaltyDiscount, orders: loyaltyCount },
+      { type: 'Affiliate Codes', amount: affiliateDiscount, orders: affiliateCount },
+      { type: 'Manual/Other', amount: fieldDiscount, orders: fieldCount },
+    ].filter(d => d.amount > 0)
+  }, [paidOrders])
+
+  // Loading state
+  const loading = ordersLoading || locationsLoading
+
+  // Fetch location metadata (only thing we still need from DB)
+  const [locationMap, setLocationMap] = useState<Map<string, { name: string; state: string; configuredRate: number }>>(new Map())
+
+  const fetchLocations = useCallback(async () => {
     if (!vendorId) return
-
-    // Get validated date range from store - bulletproof for accounting
-    const { start, end } = getDateRangeForQuery()
+    setLocationsLoading(true)
 
     try {
-      // Fetch ALL orders payment status (not checkout_attempts)
-      const pageSize = 1000
-      let allOrders: { payment_status: string }[] = []
-      let page = 0
-      let hasMore = true
-
-      while (hasMore) {
-        const { data, error } = await supabase
-          .from('orders')
-          .select('payment_status')
-          .eq('vendor_id', vendorId)
-          .neq('status', 'cancelled')
-          .gte('created_at', start)
-          .lte('created_at', end)
-          .range(page * pageSize, (page + 1) * pageSize - 1)
-
-        if (error) throw error
-
-        if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data]
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
-        }
-        page++
-      }
-
-      const successful = allOrders.filter((o) => o.payment_status === 'paid').length
-      const failed = allOrders.filter((o) => o.payment_status === 'failed').length
-      const pending = allOrders.filter((o) => o.payment_status === 'pending').length
-      const total = successful + failed + pending
-      const successRate = total > 0 ? (successful / total) * 100 : 0
-
-      setPaymentStats({ successful, failed, pending, successRate })
-    } catch (error) {
-      console.error('Failed to fetch payment stats:', error)
-    }
-  }, [vendorId, dateRange, filters])
-
-  const fetchTaxByLocation = useCallback(async () => {
-    if (!vendorId) return
-
-    try {
-      // Fetch locations
       const { data: locations } = await supabase
         .from('locations')
         .select('id, name, state, settings')
         .eq('vendor_id', vendorId)
         .eq('is_active', true)
 
-      const locationMap = new Map<string, { name: string; state: string; configuredRate: number }>()
+      const newMap = new Map<string, { name: string; state: string; configuredRate: number }>()
       for (const loc of locations || []) {
         const taxConfig = loc.settings?.tax_config
         const configuredRate = taxConfig?.sales_tax_rate || taxConfig?.default_rate / 100 || 0
-        locationMap.set(loc.id, {
+        newMap.set(loc.id, {
           name: loc.name,
           state: loc.state,
           configuredRate: configuredRate * 100,
         })
       }
+      setLocationMap(newMap)
+    } catch (error) {
+      console.error('Failed to fetch locations:', error)
+    } finally {
+      setLocationsLoading(false)
+    }
+  }, [vendorId])
 
-      // Calculate date range based on selected month
-      let startDate: Date | null = null
-      let endDate: Date | null = null
-      if (taxReportMonth !== 'all') {
-        const [year, month] = taxReportMonth.split('-').map(Number)
-        startDate = new Date(year, month - 1, 1)
-        endDate = endOfMonth(startDate)
+  // Tax by location/state/processor - computed from store data + location metadata
+  const taxReports = useMemo(() => {
+    if (paidOrders.length === 0 || locationMap.size === 0) {
+      return { byLocation: [], byState: [], byProcessor: [] }
+    }
+
+    const byLocation = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number; isEcommerce: boolean; state: string }>()
+    const byState = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number }>()
+    const byProcessor = new Map<string, { orders: number; grossSubtotal: number; discounts: number; shipping: number; tax: number; total: number }>()
+
+    for (const order of paidOrders) {
+      const isEcommerce = !order.pickup_location_id
+      const locInfo = order.pickup_location_id ? locationMap.get(order.pickup_location_id) : null
+      const rawState = locInfo?.state || order.shipping_state
+      const state = normalizeState(rawState)
+
+      // Determine processor
+      const paymentMethod = order.payment_method || ''
+      let processor: string
+      if (paymentMethod === 'authorizenet') {
+        processor = 'AuthorizeNet (Online)'
+      } else if (paymentMethod === 'cash') {
+        processor = 'Cash (In-Store)'
+      } else {
+        processor = 'Dejavoo (In-Store Card)'
       }
 
-      // Fetch all paid orders with location and tax info
-      const pageSize = 1000
-      let allOrders: any[] = []
-      let page = 0
-      let hasMore = true
+      const orderDiscounts = getOrderDiscount(order)
+      const grossSubtotal = order.subtotal || 0
 
-      while (hasMore) {
-        let query = supabase
-          .from('orders')
-          .select('pickup_location_id, subtotal, tax_amount, order_type, shipping_state, payment_method, shipping_cost, total_amount, discount_amount, affiliate_discount_amount, metadata')
-          .eq('vendor_id', vendorId)
-          .eq('payment_status', 'paid')
-          .neq('status', 'cancelled')
+      // By processor
+      const procData = byProcessor.get(processor) || { orders: 0, grossSubtotal: 0, discounts: 0, shipping: 0, tax: 0, total: 0 }
+      procData.orders++
+      procData.grossSubtotal += grossSubtotal
+      procData.discounts += orderDiscounts
+      procData.shipping += order.shipping_cost || 0
+      procData.tax += order.tax_amount || 0
+      procData.total += order.total_amount || 0
+      byProcessor.set(processor, procData)
 
-        // Apply date filter if a specific month is selected
-        if (startDate && endDate) {
-          query = query
-            .gte('created_at', startDate.toISOString())
-            .lte('created_at', endDate.toISOString())
-        }
+      // By location
+      const locKey = isEcommerce ? `ecommerce_${state}` : order.pickup_location_id || 'unknown'
+      const locData = byLocation.get(locKey) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0, isEcommerce, state }
+      locData.orders++
+      locData.grossSubtotal += grossSubtotal
+      locData.discounts += orderDiscounts
+      locData.tax += order.tax_amount || 0
+      byLocation.set(locKey, locData)
 
-        query = query.range(page * pageSize, (page + 1) * pageSize - 1)
+      // By state
+      const stateData = byState.get(state) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0 }
+      stateData.orders++
+      stateData.grossSubtotal += grossSubtotal
+      stateData.discounts += orderDiscounts
+      stateData.tax += order.tax_amount || 0
+      byState.set(state, stateData)
+    }
 
-        const { data, error } = await query
-
-        if (error) throw error
-        if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data]
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
-        }
-        page++
-      }
-
-      // Aggregate by location (retail stores), by state, and by processor
-      const byLocation = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number; isEcommerce: boolean; state: string }>()
-      const byState = new Map<string, { orders: number; grossSubtotal: number; discounts: number; tax: number }>()
-      const byProcessor = new Map<string, { orders: number; grossSubtotal: number; discounts: number; shipping: number; tax: number; total: number }>()
-
-      for (const order of allOrders) {
-        const isEcommerce = !order.pickup_location_id
-        const locInfo = order.pickup_location_id ? locationMap.get(order.pickup_location_id) : null
-        const rawState = locInfo?.state || order.shipping_state
-        const state = normalizeState(rawState)
-
-        // Determine processor: AuthorizeNet (online) vs Dejavoo (in-store card) vs Cash
-        const paymentMethod = order.payment_method || ''
-        let processor: string
-        if (paymentMethod === 'authorizenet') {
-          processor = 'AuthorizeNet (Online)'
-        } else if (paymentMethod === 'cash') {
-          processor = 'Cash (In-Store)'
-        } else {
-          processor = 'Dejavoo (In-Store Card)'
-        }
-
-        // Calculate total discounts for this order
-        const orderDiscounts =
-          parseFloat(order.discount_amount || 0) +
-          parseFloat(order.affiliate_discount_amount || 0) +
-          parseFloat(order.metadata?.loyalty_discount_amount || 0) +
-          parseFloat(order.metadata?.campaign_discount_amount || 0)
-
-        // By processor
-        const procData = byProcessor.get(processor) || { orders: 0, grossSubtotal: 0, discounts: 0, shipping: 0, tax: 0, total: 0 }
-        procData.orders++
-        procData.grossSubtotal += parseFloat(order.subtotal || 0)
-        procData.discounts += orderDiscounts
-        procData.shipping += parseFloat(order.shipping_cost || 0)
-        procData.tax += parseFloat(order.tax_amount || 0)
-        procData.total += parseFloat(order.total_amount || 0)
-        byProcessor.set(processor, procData)
-
-        // By location - for e-commerce, group by destination state
-        const locKey = isEcommerce ? `ecommerce_${state}` : order.pickup_location_id
-        const locData = byLocation.get(locKey) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0, isEcommerce, state }
-        locData.orders++
-        locData.grossSubtotal += parseFloat(order.subtotal || 0)
-        locData.discounts += orderDiscounts
-        locData.tax += parseFloat(order.tax_amount || 0)
-        byLocation.set(locKey, locData)
-
-        // By state (for state-level filing summary)
-        const stateData = byState.get(state) || { orders: 0, grossSubtotal: 0, discounts: 0, tax: 0 }
-        stateData.orders++
-        stateData.grossSubtotal += parseFloat(order.subtotal || 0)
-        stateData.discounts += orderDiscounts
-        stateData.tax += parseFloat(order.tax_amount || 0)
-        byState.set(state, stateData)
-      }
-
-      // Convert to arrays - separate retail and e-commerce
-      const taxByLocationData: TaxByLocation[] = Array.from(byLocation.entries())
-        .map(([locId, data]) => {
-          const locInfo = locationMap.get(locId)
-          const isEcommerce = data.isEcommerce
-          const netSales = data.grossSubtotal - data.discounts
-          return {
-            locationId: locId,
-            locationName: isEcommerce
-              ? `E-Commerce → ${data.state}`
-              : (locInfo?.name || 'Unknown'),
-            state: data.state,
-            configuredRate: locInfo?.configuredRate || 0,
-            orders: data.orders,
-            grossSubtotal: data.grossSubtotal,
-            discounts: data.discounts,
-            netSales,
-            taxCollected: data.tax,
-            effectiveRate: netSales > 0 ? (data.tax / netSales) * 100 : 0,
-          }
-        })
-        // Sort: retail stores first (by tax), then e-commerce (by tax)
-        .sort((a, b) => {
-          const aIsEcom = a.locationId.startsWith('ecommerce_')
-          const bIsEcom = b.locationId.startsWith('ecommerce_')
-          if (aIsEcom !== bIsEcom) return aIsEcom ? 1 : -1
-          return b.taxCollected - a.taxCollected
-        })
-
-      const taxByStateData: TaxByState[] = Array.from(byState.entries())
-        .map(([state, data]) => ({
-          state,
+    // Convert to arrays
+    const taxByLocationData: TaxByLocation[] = Array.from(byLocation.entries())
+      .map(([locId, data]) => {
+        const locInfo = locationMap.get(locId)
+        const isEcommerce = data.isEcommerce
+        const netSales = data.grossSubtotal - data.discounts
+        return {
+          locationId: locId,
+          locationName: isEcommerce ? `E-Commerce → ${data.state}` : (locInfo?.name || 'Unknown'),
+          state: data.state,
+          configuredRate: locInfo?.configuredRate || 0,
           orders: data.orders,
           grossSubtotal: data.grossSubtotal,
           discounts: data.discounts,
-          netSales: data.grossSubtotal - data.discounts,
+          netSales,
           taxCollected: data.tax,
-        }))
-        .sort((a, b) => b.taxCollected - a.taxCollected)
-
-      const taxByProcessorData: TaxByProcessor[] = Array.from(byProcessor.entries())
-        .map(([processor, data]) => ({
-          processor,
-          orders: data.orders,
-          grossSubtotal: data.grossSubtotal,
-          discounts: data.discounts,
-          netSubtotal: data.grossSubtotal - data.discounts,
-          shipping: data.shipping,
-          taxCollected: data.tax,
-          totalCharged: data.total,
-        }))
-        .sort((a, b) => b.totalCharged - a.totalCharged)
-
-      setTaxByLocation(taxByLocationData)
-      setTaxByState(taxByStateData)
-      setTaxByProcessor(taxByProcessorData)
-    } catch (error) {
-      console.error('Failed to fetch tax by location:', error)
-    }
-  }, [vendorId, taxReportMonth])
-
-  const fetchDiscountBreakdown = useCallback(async () => {
-    if (!vendorId) return
-
-    try {
-      // Calculate date range based on selected month
-      let startDate: Date | null = null
-      let endDate: Date | null = null
-      if (taxReportMonth !== 'all') {
-        const [year, month] = taxReportMonth.split('-').map(Number)
-        startDate = new Date(year, month - 1, 1)
-        endDate = endOfMonth(startDate)
-      }
-
-      const pageSize = 1000
-      let allOrders: any[] = []
-      let page = 0
-      let hasMore = true
-
-      while (hasMore) {
-        let query = supabase
-          .from('orders')
-          .select('discount_amount, metadata, affiliate_discount_amount')
-          .eq('vendor_id', vendorId)
-          .eq('payment_status', 'paid')
-          .neq('status', 'cancelled')
-
-        // Apply date filter if a specific month is selected
-        if (startDate && endDate) {
-          query = query
-            .gte('created_at', startDate.toISOString())
-            .lte('created_at', endDate.toISOString())
+          effectiveRate: netSales > 0 ? (data.tax / netSales) * 100 : 0,
         }
+      })
+      .sort((a, b) => {
+        const aIsEcom = a.locationId.startsWith('ecommerce_')
+        const bIsEcom = b.locationId.startsWith('ecommerce_')
+        if (aIsEcom !== bIsEcom) return aIsEcom ? 1 : -1
+        return b.taxCollected - a.taxCollected
+      })
 
-        query = query.range(page * pageSize, (page + 1) * pageSize - 1)
+    const taxByStateData: TaxByState[] = Array.from(byState.entries())
+      .map(([state, data]) => ({
+        state,
+        orders: data.orders,
+        grossSubtotal: data.grossSubtotal,
+        discounts: data.discounts,
+        netSales: data.grossSubtotal - data.discounts,
+        taxCollected: data.tax,
+      }))
+      .sort((a, b) => b.taxCollected - a.taxCollected)
 
-        const { data, error } = await query
+    const taxByProcessorData: TaxByProcessor[] = Array.from(byProcessor.entries())
+      .map(([processor, data]) => ({
+        processor,
+        orders: data.orders,
+        grossSubtotal: data.grossSubtotal,
+        discounts: data.discounts,
+        netSubtotal: data.grossSubtotal - data.discounts,
+        shipping: data.shipping,
+        taxCollected: data.tax,
+        totalCharged: data.total,
+      }))
+      .sort((a, b) => b.totalCharged - a.totalCharged)
 
-        if (error) throw error
-        if (data && data.length > 0) {
-          allOrders = [...allOrders, ...data]
-          hasMore = data.length === pageSize
-        } else {
-          hasMore = false
-        }
-        page++
-      }
+    return { byLocation: taxByLocationData, byState: taxByStateData, byProcessor: taxByProcessorData }
+  }, [paidOrders, locationMap, getOrderDiscount])
 
-      // Aggregate discounts by type
-      let fieldDiscount = 0, fieldCount = 0
-      let campaignDiscount = 0, campaignCount = 0
-      let loyaltyDiscount = 0, loyaltyCount = 0
-      let affiliateDiscount = 0, affiliateCount = 0
-
-      for (const order of allOrders) {
-        const fd = parseFloat(order.discount_amount || 0)
-        const cd = parseFloat(order.metadata?.campaign_discount_amount || 0)
-        const ld = parseFloat(order.metadata?.loyalty_discount_amount || 0)
-        const ad = parseFloat(order.affiliate_discount_amount || 0)
-
-        if (fd > 0) { fieldDiscount += fd; fieldCount++ }
-        if (cd > 0) { campaignDiscount += cd; campaignCount++ }
-        if (ld > 0) { loyaltyDiscount += ld; loyaltyCount++ }
-        if (ad > 0) { affiliateDiscount += ad; affiliateCount++ }
-      }
-
-      const breakdown: DiscountBreakdown[] = [
-        { type: 'Campaign/Promo', amount: campaignDiscount, orders: campaignCount },
-        { type: 'Loyalty Points', amount: loyaltyDiscount, orders: loyaltyCount },
-        { type: 'Affiliate Codes', amount: affiliateDiscount, orders: affiliateCount },
-        { type: 'Manual/Other', amount: fieldDiscount, orders: fieldCount },
-      ].filter(d => d.amount > 0)
-
-      setDiscountBreakdown(breakdown)
-    } catch (error) {
-      console.error('Failed to fetch discount breakdown:', error)
-    }
-  }, [vendorId, taxReportMonth])
-
+  // Fetch orders from store and locations on mount/date change
   useEffect(() => {
     if (vendorId) {
-      fetchMonthlyReports()
-      fetchPaymentBreakdown()
-      fetchPaymentStats()
-      fetchTaxByLocation()
-      fetchDiscountBreakdown()
+      fetchOrders(vendorId)
+      fetchLocations()
     }
-  }, [vendorId, reportPeriod, dateRange, filters, fetchMonthlyReports, fetchPaymentBreakdown, fetchPaymentStats, fetchTaxByLocation, fetchDiscountBreakdown])
+  }, [vendorId, dateRange, fetchOrders, fetchLocations])
+
+  // Update state from computed tax reports
+  useEffect(() => {
+    setTaxByLocation(taxReports.byLocation)
+    setTaxByState(taxReports.byState)
+    setTaxByProcessor(taxReports.byProcessor)
+  }, [taxReports])
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', {
@@ -660,6 +485,30 @@ export default function FinancialReportsPage() {
     a.click()
   }
 
+  const exportPDF = async () => {
+    if (!vendor || monthlyReports.length === 0) return
+
+    setExportingPDF(true)
+    try {
+      // Get date range from the dashboard store
+      const { start, end } = dateRange
+
+      await exportFinancialReportPDF(
+        {
+          storeName: vendor.store_name || 'Store',
+          logoUrl: vendor.logo_url,
+        },
+        { start, end },
+        monthlyReports,
+        totals
+      )
+    } catch (err) {
+      console.error('PDF export error:', err)
+    } finally {
+      setExportingPDF(false)
+    }
+  }
+
   // Calculate month-over-month growth
   const lastMonth = monthlyReports[monthlyReports.length - 1]
   const prevMonth = monthlyReports[monthlyReports.length - 2]
@@ -668,43 +517,59 @@ export default function FinancialReportsPage() {
     : 0
 
   return (
-    <div className="space-y-4 lg:space-y-6">
-      {/* Page Header with Tabs */}
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-lg lg:text-xl font-light text-white tracking-wide">Reports</h1>
-            <p className="text-zinc-500 text-xs lg:text-sm font-light mt-1">
-              {activeTab === 'builder' ? 'Create custom reports with any dimension' : 'Revenue, tax, and payment analytics'}
-            </p>
+    <div className="space-y-4">
+      {/* Page Header - All inline */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-light text-white tracking-wide">Reports</h1>
+
+          {/* Tab Navigation */}
+          <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 rounded-sm">
+            <button
+              onClick={() => setActiveTab('builder')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
+                activeTab === 'builder'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              Builder
+            </button>
+            <button
+              onClick={() => setActiveTab('financial')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
+                activeTab === 'financial'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Financial
+            </button>
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 w-fit rounded-sm">
-          <button
-            onClick={() => setActiveTab('builder')}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-light transition-colors rounded-sm ${
-              activeTab === 'builder'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4" />
-            Report Builder
-          </button>
-          <button
-            onClick={() => setActiveTab('financial')}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-light transition-colors rounded-sm ${
-              activeTab === 'financial'
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-500 hover:text-zinc-300'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            Financial Summary
-          </button>
-        </div>
+        {activeTab === 'financial' && (
+          <div className="flex items-center gap-2">
+            <FilterBar showPaymentFilter={false} showOrderTypeFilter={false} />
+            <button
+              onClick={exportPDF}
+              disabled={exportingPDF || monthlyReports.length === 0}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-black hover:bg-zinc-200 transition-colors text-xs font-medium disabled:opacity-50"
+            >
+              {exportingPDF ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FileText className="w-3.5 h-3.5" />}
+              PDF
+            </button>
+            <button
+              onClick={exportReport}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-xs font-light"
+            >
+              <Download className="w-3.5 h-3.5" />
+              CSV
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Report Builder Tab */}
@@ -713,32 +578,6 @@ export default function FinancialReportsPage() {
       {/* Financial Reports Tab */}
       {activeTab === 'financial' && (
         <>
-          {/* Header Actions */}
-          <div className="flex items-center gap-2 lg:gap-4 flex-wrap">
-            <div className="flex items-center gap-1.5 lg:gap-2">
-              <Calendar className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500" />
-              <select
-                value={reportPeriod}
-                onChange={(e) => setReportPeriod(Number(e.target.value) as 6 | 12)}
-                className="px-2 lg:px-3 py-1.5 lg:py-2 bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:border-zinc-700 text-xs lg:text-sm"
-              >
-                <option value={6}>6 Months</option>
-                <option value={12}>12 Months</option>
-              </select>
-            </div>
-            <button
-              onClick={exportReport}
-              className="flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-4 py-1.5 lg:py-2 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 transition-colors text-xs lg:text-sm font-light"
-            >
-              <Download className="w-3.5 h-3.5 lg:w-4 lg:h-4" />
-              Export
-            </button>
-          </div>
-
-          {/* Filters */}
-          <FilterBar
-            showPaymentFilter={false}
-          />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 lg:gap-4">
@@ -811,13 +650,14 @@ export default function FinancialReportsPage() {
               keys={['revenue', 'netRevenue']}
               indexBy="month"
               theme={nivoTheme}
-              margin={{ top: 20, right: 20, bottom: 40, left: 60 }}
-              padding={0.3}
+              margin={{ top: 20, right: 30, bottom: 50, left: 70 }}
+              padding={0.35}
               groupMode="grouped"
-              colors={[colors.chart.seriesBlue[1], colors.chart.seriesBlue[3]]}
-              borderRadius={3}
+              colors={['url(#revenueGradient)', 'url(#netRevenueGradient)']}
+              borderRadius={5}
               enableGridX={false}
               enableGridY={true}
+              gridYValues={5}
               axisTop={null}
               axisRight={null}
               axisBottom={{
@@ -829,22 +669,47 @@ export default function FinancialReportsPage() {
                 tickSize: 0,
                 tickPadding: 12,
                 format: (v) => `$${(Number(v) / 1000).toFixed(0)}k`,
+                tickValues: 5,
               }}
               enableLabel={false}
+              defs={[
+                {
+                  id: 'revenueGradient',
+                  type: 'linearGradient',
+                  colors: [
+                    { offset: 0, color: '#cbd5e1', opacity: 0.95 },
+                    { offset: 100, color: '#94a3b8', opacity: 0.75 },
+                  ],
+                },
+                {
+                  id: 'netRevenueGradient',
+                  type: 'linearGradient',
+                  colors: [
+                    { offset: 0, color: '#64748b', opacity: 0.9 },
+                    { offset: 100, color: '#475569', opacity: 0.7 },
+                  ],
+                },
+              ]}
+              fill={[
+                { match: { id: 'revenue' }, id: 'revenueGradient' },
+                { match: { id: 'netRevenue' }, id: 'netRevenueGradient' },
+              ]}
               tooltip={({ id, value, indexValue }) => (
                 <div
                   style={{
-                    background: colors.chart.tooltip.bg,
+                    background: 'rgba(24, 24, 27, 0.95)',
+                    backdropFilter: 'blur(8px)',
                     border: `1px solid ${colors.chart.tooltip.border}`,
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     padding: '12px 16px',
+                    boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
                   }}
                 >
-                  <div className="text-xs text-zinc-400 mb-1">{indexValue}</div>
-                  <div className="text-sm font-medium text-zinc-100">
+                  <div className="text-xs text-zinc-400 mb-1.5">{indexValue}</div>
+                  <div className="text-base font-medium text-white">
                     {formatCurrency(value as number)}
                   </div>
-                  <div className="text-xs text-zinc-500">
+                  <div className="text-xs text-zinc-500 mt-0.5">
                     {id === 'revenue' ? 'Gross Revenue' : 'Net Revenue'}
                   </div>
                 </div>
@@ -874,19 +739,22 @@ export default function FinancialReportsPage() {
                 },
               ]}
               theme={nivoTheme}
-              margin={{ top: 20, right: 20, bottom: 40, left: 60 }}
+              margin={{ top: 20, right: 30, bottom: 50, left: 70 }}
               xScale={{ type: 'point' }}
               yScale={{ type: 'linear', min: 'auto', max: 'auto' }}
-              curve="monotoneX"
-              colors={[colors.chart.seriesBlue[0], colors.chart.seriesBlue[2]]}
-              lineWidth={2}
+              curve="catmullRom"
+              colors={['#94a3b8', '#64748b']}
+              lineWidth={2.5}
               enablePoints={true}
-              pointSize={6}
-              pointColor={colors.bg.secondary}
-              pointBorderWidth={2}
+              pointSize={8}
+              pointColor="#18181b"
+              pointBorderWidth={2.5}
               pointBorderColor={{ from: 'serieColor' }}
+              enableArea={true}
+              areaOpacity={0.08}
               enableGridX={false}
               enableGridY={true}
+              gridYValues={5}
               axisTop={null}
               axisRight={null}
               axisBottom={{
@@ -897,29 +765,43 @@ export default function FinancialReportsPage() {
                 tickSize: 0,
                 tickPadding: 12,
                 format: (v) => `$${(Number(v) / 1000).toFixed(0)}k`,
+                tickValues: 5,
               }}
               useMesh={true}
               tooltip={({ point }) => (
                 <div
                   style={{
-                    background: colors.chart.tooltip.bg,
+                    background: 'rgba(24, 24, 27, 0.95)',
+                    backdropFilter: 'blur(8px)',
                     border: `1px solid ${colors.chart.tooltip.border}`,
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     padding: '12px 16px',
+                    boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
                   }}
                 >
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2.5 mb-1.5">
                     <div
-                      className="w-2 h-2 rounded-full"
+                      className="w-2.5 h-2.5 rounded-full"
                       style={{ background: point.color }}
                     />
-                    <span className="text-xs text-zinc-400">{String(point.id).split('.')[0]}</span>
+                    <span className="text-sm text-zinc-300">{String(point.id).split('.')[0]}</span>
                   </div>
-                  <div className="text-sm font-medium text-zinc-100">
+                  <div className="text-base font-medium text-white">
                     {formatCurrency(point.data.y as number)}
                   </div>
                 </div>
               )}
+              legends={[
+                {
+                  anchor: 'top-right',
+                  direction: 'row',
+                  translateY: -20,
+                  itemWidth: 80,
+                  itemHeight: 20,
+                  symbolSize: 10,
+                  symbolShape: 'circle',
+                },
+              ]}
               animate={true}
               motionConfig="gentle"
             />
@@ -1029,24 +911,9 @@ export default function FinancialReportsPage() {
       </div>
 
       {/* Tax Reports Section */}
-      <div className="bg-zinc-950 border border-zinc-900 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h2 className="text-sm font-light text-white tracking-wide">Tax & Discount Reports</h2>
-          <p className="text-xs text-zinc-500 mt-1">Filter by month for tax filing</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Calendar className="w-4 h-4 text-zinc-500" />
-          <select
-            value={taxReportMonth}
-            onChange={(e) => setTaxReportMonth(e.target.value)}
-            className="px-3 py-2 bg-zinc-950 border border-zinc-800 text-white focus:outline-none focus:border-zinc-700 text-sm min-w-[180px]"
-          >
-            <option value="all">All Time</option>
-            {availableMonths.map((m) => (
-              <option key={m.value} value={m.value}>{m.label}</option>
-            ))}
-          </select>
-        </div>
+      <div className="bg-zinc-950 border border-zinc-900 p-4">
+        <h2 className="text-sm font-light text-white tracking-wide">Tax & Discount Reports</h2>
+        <p className="text-xs text-zinc-500 mt-1">Filtered by selected date range</p>
       </div>
 
       {/* Tax by Processor - for reconciling with payment systems */}
@@ -1055,7 +922,7 @@ export default function FinancialReportsPage() {
           <div className="px-6 py-4 border-b border-zinc-900">
             <h3 className="text-sm font-light text-white tracking-wide">Tax by Payment Processor</h3>
             <p className="text-xs text-zinc-500 mt-1">
-              Reconcile with your payment systems ({taxReportMonth === 'all' ? 'all time' : availableMonths.find(m => m.value === taxReportMonth)?.label})
+              Reconcile with your payment systems
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -1123,7 +990,7 @@ export default function FinancialReportsPage() {
           <div className="px-6 py-4 border-b border-zinc-900">
             <h3 className="text-sm font-light text-white tracking-wide">Tax by Location</h3>
             <p className="text-xs text-zinc-500 mt-1">
-              {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+              Selected date range
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -1179,7 +1046,7 @@ export default function FinancialReportsPage() {
           <div className="px-6 py-4 border-b border-zinc-900">
             <h3 className="text-sm font-light text-white tracking-wide">Tax by State</h3>
             <p className="text-xs text-zinc-500 mt-1">
-              {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+              Selected date range
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -1230,7 +1097,7 @@ export default function FinancialReportsPage() {
         <div className="bg-zinc-950 border border-zinc-900 p-6">
           <h3 className="text-sm font-light text-white mb-2 tracking-wide">Discount Breakdown</h3>
           <p className="text-xs text-zinc-500 mb-4">
-            {taxReportMonth === 'all' ? 'All time' : availableMonths.find(m => m.value === taxReportMonth)?.label}
+            Selected date range
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {discountBreakdown.map((discount) => {

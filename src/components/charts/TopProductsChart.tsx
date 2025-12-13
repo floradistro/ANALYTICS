@@ -47,12 +47,13 @@ export function TopProductsChart({ data }: TopProductsChartProps) {
           keys={['revenue']}
           indexBy="product"
           layout="horizontal"
-          margin={{ top: 10, right: 20, bottom: 10, left: 120 }}
-          padding={0.35}
-          colors={[colors.chart.seriesBlue[1]]}
-          borderRadius={3}
+          margin={{ top: 10, right: 30, bottom: 10, left: 120 }}
+          padding={0.4}
+          colors={['url(#horizontalBarGradient)']}
+          borderRadius={4}
           enableGridX={true}
           enableGridY={false}
+          gridXValues={5}
           axisTop={null}
           axisRight={null}
           axisBottom={null}
@@ -62,21 +63,38 @@ export function TopProductsChart({ data }: TopProductsChartProps) {
             tickRotation: 0,
           }}
           enableLabel={false}
+          defs={[
+            {
+              id: 'horizontalBarGradient',
+              type: 'linearGradient',
+              x1: '0%',
+              y1: '0%',
+              x2: '100%',
+              y2: '0%',
+              colors: [
+                { offset: 0, color: '#475569', opacity: 0.7 },
+                { offset: 100, color: '#94a3b8', opacity: 0.95 },
+              ],
+            },
+          ]}
+          fill={[{ match: '*', id: 'horizontalBarGradient' }]}
           tooltip={({ data: d, value }) => (
             <div
               style={{
-                background: colors.chart.tooltip.bg,
+                background: 'rgba(24, 24, 27, 0.95)',
+                backdropFilter: 'blur(8px)',
                 border: `1px solid ${colors.chart.tooltip.border}`,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 padding: '12px 16px',
+                boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
               }}
             >
-              <div className="text-xs text-zinc-400 mb-1">{d.fullName}</div>
-              <div className="text-sm font-medium text-zinc-100">
+              <div className="text-xs text-zinc-400 mb-1.5">{d.fullName}</div>
+              <div className="text-base font-medium text-white">
                 {formatCurrency(value)}
               </div>
-              <div className="text-xs text-zinc-500">
-                {d.totalSold} units sold
+              <div className="text-xs text-zinc-500 mt-1">
+                {(d.totalSold as number).toLocaleString()} units sold
               </div>
             </div>
           )}

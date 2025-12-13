@@ -21,6 +21,8 @@ const ORDER_TYPES = [
   { value: 'walk_in', label: 'Walk-in' },
   { value: 'pickup', label: 'Pickup' },
   { value: 'shipping', label: 'Shipping' },
+  { value: 'delivery', label: 'Delivery' },
+  { value: 'online', label: 'Online' },
 ]
 
 const PAYMENT_METHODS = [

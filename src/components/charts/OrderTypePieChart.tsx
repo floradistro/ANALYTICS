@@ -1,7 +1,7 @@
 'use client'
 
 import { ResponsivePie } from '@nivo/pie'
-import { nivoTheme, colors, chartSeriesBlueColors, formatCurrency } from '@/lib/theme'
+import { nivoTheme, colors, formatCurrency } from '@/lib/theme'
 
 interface OrderTypeData {
   type: string
@@ -20,13 +20,22 @@ const TYPE_LABELS: Record<string, string> = {
   shipping: 'Shipping',
 }
 
+// Refined monochrome color palette for pie segments
+const PIE_COLORS = [
+  '#cbd5e1', // slate-300 (lightest)
+  '#94a3b8', // slate-400
+  '#64748b', // slate-500
+  '#475569', // slate-600
+  '#334155', // slate-700 (darkest)
+]
+
 export function OrderTypePieChart({ data }: OrderTypePieChartProps) {
   const chartData = data.map((item, index) => ({
     id: TYPE_LABELS[item.type] || item.type,
     label: TYPE_LABELS[item.type] || item.type,
     value: item.count,
     revenue: item.revenue,
-    color: colors.chart.seriesBlue[index % colors.chart.seriesBlue.length],
+    color: PIE_COLORS[index % PIE_COLORS.length],
   }))
 
   if (data.length === 0) {
@@ -51,39 +60,43 @@ export function OrderTypePieChart({ data }: OrderTypePieChartProps) {
         <ResponsivePie
           data={chartData}
           theme={nivoTheme}
-          margin={{ top: 20, right: 80, bottom: 40, left: 80 }}
-          innerRadius={0.6}
-          padAngle={1}
-          cornerRadius={4}
-          activeOuterRadiusOffset={8}
-          colors={chartSeriesBlueColors}
+          margin={{ top: 30, right: 90, bottom: 30, left: 90 }}
+          innerRadius={0.65}
+          padAngle={2}
+          cornerRadius={6}
+          activeOuterRadiusOffset={6}
+          activeInnerRadiusOffset={3}
+          colors={{ datum: 'data.color' }}
           borderWidth={0}
           enableArcLinkLabels={true}
-          arcLinkLabelsSkipAngle={10}
+          arcLinkLabelsSkipAngle={12}
           arcLinkLabelsTextColor={colors.text.secondary}
-          arcLinkLabelsThickness={1}
-          arcLinkLabelsColor={{ from: 'color', modifiers: [['darker', 0.5]] }}
-          arcLinkLabelsDiagonalLength={12}
-          arcLinkLabelsStraightLength={12}
+          arcLinkLabelsThickness={1.5}
+          arcLinkLabelsColor={{ from: 'color', modifiers: [['opacity', 0.6]] }}
+          arcLinkLabelsDiagonalLength={16}
+          arcLinkLabelsStraightLength={16}
+          arcLinkLabelsTextOffset={6}
           enableArcLabels={false}
           tooltip={({ datum }) => (
             <div
               style={{
-                background: colors.chart.tooltip.bg,
+                background: 'rgba(24, 24, 27, 0.95)',
+                backdropFilter: 'blur(8px)',
                 border: `1px solid ${colors.chart.tooltip.border}`,
-                borderRadius: '6px',
+                borderRadius: '8px',
                 padding: '12px 16px',
+                boxShadow: '0 10px 40px -10px rgba(0, 0, 0, 0.5)',
               }}
             >
-              <div className="flex items-center gap-2 mb-1">
+              <div className="flex items-center gap-2.5 mb-2">
                 <div
-                  className="w-2 h-2 rounded-full"
+                  className="w-3 h-3 rounded-sm"
                   style={{ background: datum.color }}
                 />
-                <span className="text-xs text-zinc-400">{datum.label}</span>
+                <span className="text-sm text-zinc-200 font-medium">{datum.label}</span>
               </div>
-              <div className="text-sm font-medium text-zinc-100">
-                {datum.value} orders
+              <div className="text-base font-medium text-white mb-0.5">
+                {datum.value.toLocaleString()} <span className="text-zinc-400 text-sm font-normal">orders</span>
               </div>
               <div className="text-xs text-zinc-500">
                 {formatCurrency(datum.data.revenue as number)} revenue
