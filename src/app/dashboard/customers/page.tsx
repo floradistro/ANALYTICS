@@ -305,14 +305,14 @@ export default function CustomersPage() {
         ['Name', 'Email', 'Phone', 'Loyalty Tier', 'Points', 'Orders', 'Total Spent', 'Joined'].join(','),
         ...allCustomers.map((c) =>
           [
-            `"${c.first_name} ${c.last_name}"`,
+            `"${c.first_name || ''} ${c.last_name || ''}"`,
             c.email || '',
             c.phone || '',
-            c.loyalty_tier,
-            c.loyalty_points,
+            c.loyalty_tier || '',
+            c.loyalty_points || 0,
             statsMap.get(c.id)?.count || 0,
             statsMap.get(c.id)?.total || 0,
-            format(new Date(c.created_at), 'yyyy-MM-dd'),
+            c.created_at ? format(new Date(c.created_at), 'yyyy-MM-dd') : '',
           ].join(',')
         ),
       ].join('\n')
