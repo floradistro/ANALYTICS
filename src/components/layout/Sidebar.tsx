@@ -17,6 +17,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ClipboardCheck,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useState, useEffect } from 'react'
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/dashboard/traffic', label: 'Web Analytics', icon: Activity },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/dashboard/shipments', label: 'Shipments', icon: Truck },
+  { href: '/dashboard/operations', label: 'Operations', icon: ClipboardCheck },
   { href: '/dashboard/customers', label: 'Customers', icon: Users },
   { href: '/dashboard/map', label: 'Location Map', icon: Map },
   { href: '/dashboard/reports', label: 'Financial Reports', icon: FileText },
