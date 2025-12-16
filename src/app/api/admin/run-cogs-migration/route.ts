@@ -53,8 +53,8 @@ export async function POST(request: Request) {
         // Split into individual statements and execute
         const statements = migrationSQL
           .split(';')
-          .map(s => s.trim())
-          .filter(s => s.length > 0 && !s.startsWith('--'))
+          .map((s: string) => s.trim())
+          .filter((s: string) => s.length > 0 && !s.startsWith('--'))
 
         for (const statement of statements) {
           if (statement) {
