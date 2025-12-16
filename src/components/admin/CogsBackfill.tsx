@@ -74,8 +74,8 @@ export function CogsBackfill() {
         totalMissing: totalMissing || 0,
         canBackfill,
         revenueAffected,
-        earliestDate: dateRange?.[0]?.orders?.created_at || null,
-        latestDate: latestDateRange?.[0]?.orders?.created_at || null,
+        earliestDate: (dateRange?.[0]?.orders as any)?.created_at || null,
+        latestDate: (latestDateRange?.[0]?.orders as any)?.created_at || null,
       })
     } catch (err) {
       console.error('Analysis error:', err)
