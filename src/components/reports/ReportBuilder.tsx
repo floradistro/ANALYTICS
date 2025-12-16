@@ -54,6 +54,9 @@ export type Metric =
   | 'items'
   | 'avg_order_value'
   | 'items_per_order'
+  | 'cost'
+  | 'profit'
+  | 'margin'
 
 export type Channel = 'online' | 'in_store'
 
@@ -121,6 +124,9 @@ const METRIC_OPTIONS: { value: Metric; label: string; description: string }[] = 
   { value: 'items', label: 'Line Items', description: 'Number of line items' },
   { value: 'avg_order_value', label: 'Avg Order Value', description: 'Total / Orders' },
   { value: 'items_per_order', label: 'Items/Order', description: 'Average items per order' },
+  { value: 'cost', label: 'Cost (COGS)', description: 'Cost of goods sold' },
+  { value: 'profit', label: 'Gross Profit', description: 'Revenue - COGS' },
+  { value: 'margin', label: 'Margin %', description: 'Profit margin percentage' },
 ]
 
 const DEFAULT_CONFIG: ReportConfig = {
@@ -268,6 +274,11 @@ export default function ReportBuilder() {
         config.metrics.includes('items') ||
         config.metrics.includes('items_per_order')
 
+      const needsCogs =
+        config.metrics.includes('cost') ||
+        config.metrics.includes('profit') ||
+        config.metrics.includes('margin')
+
       // Build aggregation maps
       const aggregationMap = new Map<
         string,
@@ -280,6 +291,8 @@ export default function ReportBuilder() {
           total: number
           quantity: number
           items: number
+          cost: number
+          profit: number
         }
       >()
 
@@ -400,6 +413,8 @@ export default function ReportBuilder() {
                 total: 0,
                 quantity: 0,
                 items: 0,
+                cost: 0,
+                profit: 0,
               })
             }
 
@@ -431,6 +446,53 @@ export default function ReportBuilder() {
 
         hasMore = orders.length === pageSize
         page++
+      }
+
+      // Fetch COGS data at order level if needed but not using line items
+      if (needsCogs && !needsLineItems) {
+        const orderIds = Array.from(aggregationMap.keys())
+          .map(key => {
+            const agg = aggregationMap.get(key)!
+            return Array.from(agg.orders)
+          })
+          .flat()
+
+        if (orderIds.length > 0) {
+          // Fetch aggregated COGS per order
+          const batchSize = 100
+          for (let i = 0; i < orderIds.length; i += batchSize) {
+            const batchIds = orderIds.slice(i, i + batchSize)
+
+            const { data: cogsData } = await supabase
+              .from('order_items')
+              .select('order_id, cost_per_unit, profit_per_unit, quantity')
+              .in('order_id', batchIds)
+
+            if (cogsData) {
+              // Aggregate COGS by order
+              const cogsByOrder = new Map<string, { cost: number; profit: number }>()
+
+              for (const item of cogsData) {
+                const existing = cogsByOrder.get(item.order_id) || { cost: 0, profit: 0 }
+                const qty = parseFloat(item.quantity || 0)
+                existing.cost += parseFloat(item.cost_per_unit || 0) * qty
+                existing.profit += parseFloat(item.profit_per_unit || 0) * qty
+                cogsByOrder.set(item.order_id, existing)
+              }
+
+              // Apply COGS to aggregation map
+              for (const [groupKey, agg] of aggregationMap) {
+                for (const orderId of agg.orders) {
+                  const orderCogs = cogsByOrder.get(orderId)
+                  if (orderCogs) {
+                    agg.cost += orderCogs.cost
+                    agg.profit += orderCogs.profit
+                  }
+                }
+              }
+            }
+          }
+        }
       }
 
       // If we need line item data (product, category, quantity, items)
@@ -516,9 +578,12 @@ export default function ReportBuilder() {
               product_name,
               product_id,
               quantity,
-              subtotal,
+              line_subtotal,
+              line_total,
               tax_amount,
-              discount_amount,
+              cost_per_unit,
+              profit_per_unit,
+              margin_percentage,
               products (
                 id,
                 name,
@@ -598,6 +663,8 @@ export default function ReportBuilder() {
                 total: 0,
                 quantity: 0,
                 items: 0,
+                cost: 0,
+                profit: 0,
               })
             }
 
@@ -605,16 +672,26 @@ export default function ReportBuilder() {
             agg.orders.add(order.id)
 
             // Line item calculation - consistent with order level
-            const itemSubtotal = parseFloat(item.subtotal || 0)
-            const itemDiscount = parseFloat(item.discount_amount || 0)
+            const itemSubtotal = parseFloat(item.line_subtotal || 0)
+            const itemTotal = parseFloat(item.line_total || 0)
             const itemTax = parseFloat(item.tax_amount || 0)
+            const itemQuantity = parseFloat(item.quantity || 0)
+
+            // Calculate discount as subtotal - total + tax (since total = subtotal - discount + tax)
+            const itemDiscount = itemSubtotal - (itemTotal - itemTax)
+
+            // Get COGS data if available
+            const itemCostPerUnit = parseFloat(item.cost_per_unit || 0)
+            const itemProfitPerUnit = parseFloat(item.profit_per_unit || 0)
 
             agg.gross_sales += itemSubtotal
             agg.discounts += itemDiscount
             agg.tax += itemTax
-            agg.total += (itemSubtotal - itemDiscount) + itemTax
-            agg.quantity += parseFloat(item.quantity || 0)
+            agg.total += itemTotal
+            agg.quantity += itemQuantity
             agg.items += 1
+            agg.cost += itemCostPerUnit * itemQuantity
+            agg.profit += itemProfitPerUnit * itemQuantity
           }
         }
       }
@@ -668,6 +745,16 @@ export default function ReportBuilder() {
               break
             case 'items_per_order':
               row['Items/Order'] = orderCount > 0 ? Math.round((agg.items / orderCount) * 100) / 100 : 0
+              break
+            case 'cost':
+              row['Cost (COGS)'] = Math.round(agg.cost * 100) / 100
+              break
+            case 'profit':
+              row['Gross Profit'] = Math.round(agg.profit * 100) / 100
+              break
+            case 'margin':
+              const revenue = agg.gross_sales - agg.discounts
+              row['Margin %'] = revenue > 0 ? Math.round((agg.profit / revenue) * 10000) / 100 : 0
               break
           }
         }
@@ -748,7 +835,7 @@ export default function ReportBuilder() {
 
       // Build columns with appropriate formatting
       const pdfColumns: PDFColumn[] = headers.map((header) => {
-        const isCurrency = ['Gross Sales', 'Discounts', 'Net Sales', 'Tax', 'Total', 'Avg Order Value'].includes(header)
+        const isCurrency = ['Gross Sales', 'Discounts', 'Net Sales', 'Tax', 'Total', 'Avg Order Value', 'Cost (COGS)', 'Gross Profit'].includes(header)
         const isNumber = ['Orders', 'Quantity', 'Line Items'].includes(header)
         const isPercent = header.includes('%')
 
@@ -826,7 +913,7 @@ export default function ReportBuilder() {
     }).format(value)
 
   const isCurrencyColumn = (col: string) =>
-    ['Gross Sales', 'Discounts', 'Net Sales', 'Tax', 'Total', 'Avg Order Value'].includes(col)
+    ['Gross Sales', 'Discounts', 'Net Sales', 'Tax', 'Total', 'Avg Order Value', 'Cost (COGS)', 'Gross Profit'].includes(col)
 
   return (
     <div className="space-y-6">
