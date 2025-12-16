@@ -25,8 +25,9 @@ import { ResponsiveLine } from '@nivo/line'
 import { nivoTheme, colors } from '@/lib/theme'
 import { FilterBar } from '@/components/filters/FilterBar'
 import ReportBuilder from '@/components/reports/ReportBuilder'
+import CogsAnalytics from '@/components/reports/CogsAnalytics'
 
-type ReportTab = 'builder' | 'financial'
+type ReportTab = 'builder' | 'financial' | 'cogs'
 
 interface MonthlyReport {
   month: string
@@ -547,6 +548,17 @@ export default function FinancialReportsPage() {
               <FileText className="w-3.5 h-3.5" />
               Financial
             </button>
+            <button
+              onClick={() => setActiveTab('cogs')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
+                activeTab === 'cogs'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <DollarSign className="w-3.5 h-3.5" />
+              COGS
+            </button>
           </div>
         </div>
 
@@ -574,6 +586,9 @@ export default function FinancialReportsPage() {
 
       {/* Report Builder Tab */}
       {activeTab === 'builder' && <ReportBuilder />}
+
+      {/* COGS Analytics Tab */}
+      {activeTab === 'cogs' && <CogsAnalytics />}
 
       {/* Financial Reports Tab */}
       {activeTab === 'financial' && (

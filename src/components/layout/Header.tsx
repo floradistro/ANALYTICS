@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Bell, User, Clock, ChevronDown, Calendar } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Bell, User, Clock, ChevronDown, Calendar, MapPin } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { format, startOfDay, endOfDay, subDays, startOfMonth, startOfYear } from 'date-fns'
@@ -17,11 +17,19 @@ const DATE_PRESETS = [
 ]
 
 export function Header() {
-  const { user, vendor } = useAuthStore()
-  const { dateRange, setDateRange } = useDashboardStore()
+  const { user, vendor, vendorId } = useAuthStore()
+  const { dateRange, setDateRange, locations, isLoadingLocations, fetchLocations, filters, setLocationIds } = useDashboardStore()
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [showLocationPicker, setShowLocationPicker] = useState(false)
   const [activePreset, setActivePreset] = useState('30days')
   const [showCustom, setShowCustom] = useState(false)
+
+  // Fetch locations on mount
+  useEffect(() => {
+    if (vendorId && locations.length === 0 && !isLoadingLocations) {
+      fetchLocations(vendorId)
+    }
+  }, [vendorId, locations.length, isLoadingLocations, fetchLocations])
 
   const applyPreset = (preset: string) => {
     setActivePreset(preset)
@@ -73,6 +81,29 @@ export function Header() {
 
   const formatDateValue = (date: Date): string => {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+
+  const toggleLocation = (locationId: string) => {
+    const currentIds = filters.locationIds
+    if (currentIds.includes(locationId)) {
+      setLocationIds(currentIds.filter(id => id !== locationId))
+    } else {
+      setLocationIds([...currentIds, locationId])
+    }
+  }
+
+  const clearLocationFilter = () => {
+    setLocationIds([])
+    setShowLocationPicker(false)
+  }
+
+  const getLocationLabel = () => {
+    if (filters.locationIds.length === 0) return 'All Locations'
+    if (filters.locationIds.length === 1) {
+      const loc = locations.find(l => l.id === filters.locationIds[0])
+      return loc?.name || 'Location'
+    }
+    return `${filters.locationIds.length} Locations`
   }
 
   return (
@@ -144,6 +175,70 @@ export function Header() {
               {format(dateRange.start, 'MMM d, yyyy')} - {format(dateRange.end, 'MMM d, yyyy')}
             </span>
           )}
+
+          {/* Location Filter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowLocationPicker(!showLocationPicker)}
+              className="flex items-center gap-1.5 lg:gap-2 px-2.5 lg:px-4 py-1.5 lg:py-2 border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-900 transition-colors"
+            >
+              <MapPin className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500 flex-shrink-0" />
+              <span className="text-xs lg:text-sm text-zinc-300 font-light whitespace-nowrap">
+                {getLocationLabel()}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 lg:w-4 lg:h-4 text-zinc-500 flex-shrink-0" />
+            </button>
+
+            {showLocationPicker && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowLocationPicker(false)} />
+                <div className="absolute top-full left-0 mt-2 bg-zinc-950 border border-zinc-800 shadow-2xl z-50 min-w-[200px] lg:min-w-[240px] max-h-[400px] overflow-y-auto">
+                  {/* Clear All Option */}
+                  {filters.locationIds.length > 0 && (
+                    <button
+                      onClick={clearLocationFilter}
+                      className="w-full text-left px-3 lg:px-4 py-2 lg:py-2.5 text-xs lg:text-sm text-zinc-400 hover:text-white hover:bg-zinc-900 border-b border-zinc-800 transition-colors"
+                    >
+                      Clear All
+                    </button>
+                  )}
+
+                  {/* Location List */}
+                  {isLoadingLocations ? (
+                    <div className="px-3 lg:px-4 py-3 text-xs text-zinc-500">Loading locations...</div>
+                  ) : locations.length === 0 ? (
+                    <div className="px-3 lg:px-4 py-3 text-xs text-zinc-500">No locations found</div>
+                  ) : (
+                    locations.map((location) => {
+                      const isSelected = filters.locationIds.includes(location.id)
+                      return (
+                        <button
+                          key={location.id}
+                          onClick={() => toggleLocation(location.id)}
+                          className={`w-full text-left px-3 lg:px-4 py-2 lg:py-2.5 text-xs lg:text-sm transition-colors flex items-center gap-2 ${
+                            isSelected
+                              ? 'text-slate-200 bg-slate-700/30'
+                              : 'text-zinc-400 hover:text-white hover:bg-zinc-900'
+                          }`}
+                        >
+                          <div className={`w-3 h-3 border rounded-sm flex items-center justify-center flex-shrink-0 ${
+                            isSelected ? 'border-slate-400 bg-slate-600' : 'border-zinc-600'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-2 h-2 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
+                            )}
+                          </div>
+                          {location.name}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2 lg:gap-4 flex-shrink-0">

@@ -33,7 +33,9 @@ import {
   Monitor,
   Terminal,
   Settings2,
+  Database,
 } from 'lucide-react'
+import { CogsBackfill } from '@/components/admin/CogsBackfill'
 // Tax rate structure for multiple taxes per location
 interface TaxRate {
   id: string
@@ -82,6 +84,7 @@ type SettingsSection =
   | 'email'
   | 'team'
   | 'suppliers'
+  | 'data'
 
 interface NavItem {
   id: SettingsSection
@@ -99,6 +102,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'email', label: 'Email', icon: Mail, description: 'Notifications & templates' },
   { id: 'team', label: 'Team', icon: Users, description: 'Users & permissions' },
   { id: 'suppliers', label: 'Suppliers', icon: Package, description: 'Vendor management' },
+  { id: 'data', label: 'Data Tools', icon: Database, description: 'Data backfill & maintenance' },
 ]
 
 // =============================================================================
@@ -135,6 +139,11 @@ export default function SettingsPage() {
         console.error('[Settings] Vendor error:', vendorResult.error)
       } else {
         console.log('[Settings] Loaded vendor:', vendorResult.data)
+        console.log('[Settings] Shipping config:', {
+          default_shipping_cost: vendorResult.data?.default_shipping_cost,
+          free_shipping_enabled: vendorResult.data?.free_shipping_enabled,
+          free_shipping_threshold: vendorResult.data?.free_shipping_threshold
+        })
         setLocalVendor(vendorResult.data)
         setVendor(vendorResult.data)
       }
@@ -211,7 +220,7 @@ export default function SettingsPage() {
       case 'registers':
         return <RegistersSettings vendorId={vendorId} locations={locations} />
       case 'payments':
-        return <PaymentsSettings />
+        return <PaymentsSettings vendorId={vendorId} />
       case 'shipping':
         return <ShippingSettings vendor={vendor} vendorId={vendorId} setVendor={handleVendorUpdate} />
       case 'email':
@@ -220,6 +229,8 @@ export default function SettingsPage() {
         return <TeamSettings vendorId={vendorId} />
       case 'suppliers':
         return <SuppliersSettings vendorId={vendorId} />
+      case 'data':
+        return <DataToolsSettings />
       default:
         return null
     }
@@ -1178,10 +1189,121 @@ function RegistersSettings({
 // PAYMENTS SETTINGS
 // =============================================================================
 
-function PaymentsSettings() {
+interface AuthorizeNetConfig {
+  id: string
+  processor_name: string
+  environment: 'sandbox' | 'production'
+  authorizenet_api_login_id: string | null
+  authorizenet_transaction_key: string | null
+  authorizenet_public_client_key: string | null
+  authorizenet_signature_key: string | null
+  is_active: boolean
+  is_ecommerce_processor: boolean
+}
+
+function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
+  const [authNetConfig, setAuthNetConfig] = useState<AuthorizeNetConfig | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [showAuthNetModal, setShowAuthNetModal] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const [authNetForm, setAuthNetForm] = useState({
+    processor_name: 'E-Commerce Gateway',
+    environment: 'sandbox' as 'sandbox' | 'production',
+    api_login_id: '',
+    transaction_key: '',
+    public_client_key: '',
+    signature_key: '',
+  })
+
+  useEffect(() => {
+    if (!vendorId) return
+    const loadAuthNetConfig = async () => {
+      setLoading(true)
+      try {
+        const { data } = await supabase
+          .from('payment_processors')
+          .select('*')
+          .eq('vendor_id', vendorId)
+          .eq('processor_type', 'authorizenet')
+          .eq('is_ecommerce_processor', true)
+          .single()
+        if (data) {
+          setAuthNetConfig(data)
+          setAuthNetForm({
+            processor_name: data.processor_name || 'E-Commerce Gateway',
+            environment: data.environment || 'sandbox',
+            api_login_id: data.authorizenet_api_login_id || '',
+            transaction_key: data.authorizenet_transaction_key || '',
+            public_client_key: data.authorizenet_public_client_key || '',
+            signature_key: data.authorizenet_signature_key || '',
+          })
+        }
+      } catch { console.log('[PaymentsSettings] No existing Authorize.net config') }
+      finally { setLoading(false) }
+    }
+    loadAuthNetConfig()
+  }, [vendorId])
+
+  const handleSaveAuthNet = async () => {
+    if (!vendorId) return
+    if (!authNetForm.api_login_id.trim()) { setMessage({ type: 'error', text: 'API Login ID is required' }); return }
+    if (!authNetForm.transaction_key.trim()) { setMessage({ type: 'error', text: 'Transaction Key is required' }); return }
+    if (!authNetForm.public_client_key.trim()) { setMessage({ type: 'error', text: 'Public Client Key is required' }); return }
+
+    setSaving(true)
+    setMessage(null)
+    try {
+      const processorData = {
+        vendor_id: vendorId,
+        processor_type: 'authorizenet',
+        processor_name: authNetForm.processor_name.trim(),
+        environment: authNetForm.environment,
+        authorizenet_api_login_id: authNetForm.api_login_id.trim(),
+        authorizenet_transaction_key: authNetForm.transaction_key.trim(),
+        authorizenet_public_client_key: authNetForm.public_client_key.trim(),
+        authorizenet_signature_key: authNetForm.signature_key.trim() || null,
+        is_active: true,
+        is_ecommerce_processor: true,
+        is_default: false,
+      }
+
+      if (authNetConfig) {
+        const { data, error } = await supabase.from('payment_processors').update({ ...processorData, updated_at: new Date().toISOString() }).eq('id', authNetConfig.id).select().single()
+        if (error) throw error
+        setAuthNetConfig(data)
+      } else {
+        const { data, error } = await supabase.from('payment_processors').insert(processorData).select().single()
+        if (error) throw error
+        setAuthNetConfig(data)
+      }
+      setMessage({ type: 'success', text: 'Authorize.net configuration saved' })
+      setShowAuthNetModal(false)
+    } catch (err) {
+      console.error('[PaymentsSettings] Save error:', err)
+      setMessage({ type: 'error', text: 'Failed to save configuration' })
+    } finally { setSaving(false) }
+  }
+
+  const handleDeleteAuthNet = async () => {
+    if (!authNetConfig || !confirm('Remove Authorize.net configuration?')) return
+    setSaving(true)
+    try {
+      const { error } = await supabase.from('payment_processors').delete().eq('id', authNetConfig.id)
+      if (error) throw error
+      setAuthNetConfig(null)
+      setAuthNetForm({ processor_name: 'E-Commerce Gateway', environment: 'sandbox', api_login_id: '', transaction_key: '', public_client_key: '', signature_key: '' })
+      setMessage({ type: 'success', text: 'Authorize.net configuration removed' })
+      setShowAuthNetModal(false)
+    } catch { setMessage({ type: 'error', text: 'Failed to remove configuration' }) }
+    finally { setSaving(false) }
+  }
+
   return (
     <div className="space-y-6">
       <SectionHeader title="Payment Processing" description="Configure payment methods for in-store and online sales" />
+      {message && <StatusMessage type={message.type} text={message.text} />}
 
       <div className="space-y-3">
         <h3 className="text-[10px] font-medium text-zinc-600 uppercase tracking-wider px-1">In-Store Payments</h3>
@@ -1208,112 +1330,279 @@ function PaymentsSettings() {
       <div className="space-y-3">
         <h3 className="text-[10px] font-medium text-zinc-600 uppercase tracking-wider px-1">Online Payments</h3>
         <Card>
-          <div className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center"><CreditCard className="w-5 h-5 text-zinc-500" /></div>
-              <div><div className="text-sm font-light text-white">Authorize.net</div><div className="text-xs text-zinc-500 mt-0.5">Credit card processing for e-commerce</div></div>
+          {loading ? (
+            <div className="p-4 flex items-center justify-center"><Loader2 className="w-5 h-5 text-zinc-500 animate-spin" /></div>
+          ) : authNetConfig ? (
+            <div>
+              <div className="p-4 flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center"><CreditCard className="w-5 h-5 text-blue-400" /></div>
+                  <div>
+                    <div className="text-sm font-light text-white">{authNetConfig.processor_name}</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">Authorize.net • {authNetConfig.environment === 'production' ? 'Production' : 'Sandbox'}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 text-[10px] ${authNetConfig.environment === 'production' ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/30' : 'bg-amber-900/30 text-amber-400 border border-amber-800/30'}`}>
+                    {authNetConfig.environment === 'production' ? 'Live' : 'Test Mode'}
+                  </span>
+                  <button onClick={() => setShowAuthNetModal(true)} className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">Edit</button>
+                </div>
+              </div>
+              <div className="px-4 pb-4 grid grid-cols-2 gap-x-8 gap-y-1 text-xs border-t border-zinc-900 pt-3 mt-1">
+                <div><span className="text-zinc-600">API Login ID:</span> <span className="text-zinc-300">{authNetConfig.authorizenet_api_login_id}</span></div>
+                <div><span className="text-zinc-600">Transaction Key:</span> <span className="text-zinc-300">••••••••</span></div>
+                <div><span className="text-zinc-600">Public Client Key:</span> <span className="text-zinc-300">{authNetConfig.authorizenet_public_client_key ? `${authNetConfig.authorizenet_public_client_key.slice(0, 12)}...` : '—'}</span></div>
+                <div><span className="text-zinc-600">Signature Key:</span> <span className="text-zinc-300">{authNetConfig.authorizenet_signature_key ? '••••••••' : 'Not set'}</span></div>
+              </div>
             </div>
-            <span className="px-2 py-0.5 text-[10px] bg-emerald-900/30 text-emerald-400 border border-emerald-800/30">Active</span>
-          </div>
+          ) : (
+            <div className="p-4 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center"><CreditCard className="w-5 h-5 text-zinc-700" /></div>
+                <div><div className="text-sm font-light text-zinc-500">Authorize.net</div><div className="text-xs text-zinc-600 mt-0.5">Not configured</div></div>
+              </div>
+              <button onClick={() => setShowAuthNetModal(true)} className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">Configure</button>
+            </div>
+          )}
         </Card>
         <Card>
           <div className="p-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-10 h-10 bg-zinc-900 border border-zinc-800 flex items-center justify-center"><CreditCard className="w-5 h-5 text-zinc-700" /></div>
-              <div><div className="text-sm font-light text-zinc-500">Stripe</div><div className="text-xs text-zinc-600 mt-0.5">Not configured</div></div>
+              <div><div className="text-sm font-light text-zinc-500">Stripe</div><div className="text-xs text-zinc-600 mt-0.5">Coming soon</div></div>
             </div>
-            <button className="px-3 py-1.5 text-xs text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white">Configure</button>
+            <span className="px-2 py-0.5 text-[10px] text-zinc-600 border border-zinc-800">Unavailable</span>
           </div>
         </Card>
       </div>
+
+      {showAuthNetModal && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-zinc-950 border border-zinc-800 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+              <h2 className="text-white font-light">{authNetConfig ? 'Edit' : 'Configure'} Authorize.net</h2>
+              <button onClick={() => setShowAuthNetModal(false)} className="text-zinc-500 hover:text-white"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-6 space-y-5">
+              <FormField label="Gateway Name" hint="Display name for this gateway">
+                <input type="text" value={authNetForm.processor_name} onChange={(e) => setAuthNetForm({ ...authNetForm, processor_name: e.target.value })} className="input-field" placeholder="E-Commerce Gateway" />
+              </FormField>
+              <div>
+                <label className="text-[11px] font-medium text-zinc-500 uppercase tracking-wider block mb-2">Environment</label>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setAuthNetForm({ ...authNetForm, environment: 'sandbox' })} className={`flex-1 py-2 px-4 text-sm border transition-colors ${authNetForm.environment === 'sandbox' ? 'bg-blue-500/10 border-blue-500 text-blue-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}>Sandbox</button>
+                  <button type="button" onClick={() => setAuthNetForm({ ...authNetForm, environment: 'production' })} className={`flex-1 py-2 px-4 text-sm border transition-colors ${authNetForm.environment === 'production' ? 'bg-red-500/10 border-red-500 text-red-400' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}>Production</button>
+                </div>
+              </div>
+              <FormField label="API Login ID *" hint="From Authorize.net merchant interface">
+                <input type="text" value={authNetForm.api_login_id} onChange={(e) => setAuthNetForm({ ...authNetForm, api_login_id: e.target.value })} className="input-field" placeholder="Enter API Login ID" autoComplete="off" />
+              </FormField>
+              <FormField label="Transaction Key *" hint="Keep this secret - never expose client-side">
+                <input type="password" value={authNetForm.transaction_key} onChange={(e) => setAuthNetForm({ ...authNetForm, transaction_key: e.target.value })} className="input-field" placeholder="Enter Transaction Key" autoComplete="off" />
+              </FormField>
+              <FormField label="Public Client Key *" hint="Required for Accept.js (client-side tokenization)">
+                <input type="text" value={authNetForm.public_client_key} onChange={(e) => setAuthNetForm({ ...authNetForm, public_client_key: e.target.value })} className="input-field" placeholder="Enter Public Client Key" autoComplete="off" />
+              </FormField>
+              <FormField label="Signature Key" hint="Optional - for webhook validation">
+                <input type="password" value={authNetForm.signature_key} onChange={(e) => setAuthNetForm({ ...authNetForm, signature_key: e.target.value })} className="input-field" placeholder="Enter Signature Key (optional)" autoComplete="off" />
+              </FormField>
+              <div className="p-3 bg-blue-500/5 border border-blue-500/20 text-xs text-zinc-400">
+                Get your credentials from the Authorize.net Merchant Interface under <span className="text-blue-400">Account → Security Settings → API Credentials & Keys</span>
+              </div>
+            </div>
+            <div className="p-4 border-t border-zinc-800 flex items-center justify-between">
+              {authNetConfig ? <button onClick={handleDeleteAuthNet} disabled={saving} className="px-4 py-2 text-sm text-red-400 hover:text-red-300 disabled:opacity-50">Remove Gateway</button> : <div />}
+              <div className="flex gap-2">
+                <button onClick={() => setShowAuthNetModal(false)} disabled={saving} className="px-4 py-2 text-sm text-zinc-400 border border-zinc-800 hover:border-zinc-700 hover:text-white disabled:opacity-50">Cancel</button>
+                <button onClick={handleSaveAuthNet} disabled={saving} className="px-4 py-2 text-sm bg-white text-black hover:bg-zinc-200 disabled:opacity-50 flex items-center gap-2">
+                  {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {saving ? 'Saving...' : 'Save Configuration'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 // =============================================================================
 // SHIPPING SETTINGS
 // =============================================================================
 
 function ShippingSettings({ vendor, vendorId, setVendor }: { vendor: any; vendorId: string | null; setVendor: (v: any) => void }) {
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [formData, setFormData] = useState({ default_shipping_cost: 0, free_shipping_enabled: false, free_shipping_threshold: 0 })
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
+  // Form state
+  const [shippingCost, setShippingCost] = useState('')
+  const [freeShippingOn, setFreeShippingOn] = useState(false)
+  const [freeThreshold, setFreeThreshold] = useState('')
+
+  // Initialize form when vendor data arrives or changes
   useEffect(() => {
     if (vendor) {
-      console.log('[ShippingSettings] Vendor loaded:', {
-        default_shipping_cost: vendor.default_shipping_cost,
-        free_shipping_enabled: vendor.free_shipping_enabled,
-        free_shipping_threshold: vendor.free_shipping_threshold
-      })
-      setFormData({
-        default_shipping_cost: vendor.default_shipping_cost ?? 0,
-        free_shipping_enabled: vendor.free_shipping_enabled ?? false,
-        free_shipping_threshold: vendor.free_shipping_threshold ?? 0
-      })
+      setShippingCost(String(vendor.default_shipping_cost ?? 0))
+      setFreeShippingOn(Boolean(vendor.free_shipping_enabled))
+      setFreeThreshold(String(vendor.free_shipping_threshold ?? 0))
     }
-  }, [vendor])
+  }, [vendor?.id])
 
+  const handleSave = async () => {
+    if (!vendorId) return
+    setIsSaving(true)
+    setSaveMessage(null)
+    setSaveError(null)
+
+    try {
+      const updateData = {
+        default_shipping_cost: parseFloat(shippingCost) || 0,
+        free_shipping_enabled: freeShippingOn,
+        free_shipping_threshold: parseFloat(freeThreshold) || 0,
+        updated_at: new Date().toISOString()
+      }
+
+      const { data, error } = await supabase
+        .from('vendors')
+        .update(updateData)
+        .eq('id', vendorId)
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setVendor(data)
+      setSaveMessage('Shipping settings saved successfully')
+      setTimeout(() => setSaveMessage(null), 3000)
+    } catch (err) {
+      console.error('Save error:', err)
+      setSaveError('Failed to save shipping settings')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Loading state
   if (!vendor) {
     return (
       <div className="space-y-6">
-        <SectionHeader title="Shipping" description="Configure shipping rates and free shipping thresholds" />
-        <Card>
-          <div className="p-12 text-center">
-            <Loader2 className="w-6 h-6 text-zinc-500 animate-spin mx-auto" />
-            <p className="text-zinc-500 text-sm mt-3">Loading shipping settings...</p>
-          </div>
-        </Card>
+        <div className="border-b border-zinc-800 pb-4">
+          <h2 className="text-xl font-light text-white">Shipping</h2>
+          <p className="text-sm text-zinc-500 mt-1">Configure shipping rates and free shipping thresholds</p>
+        </div>
+        <div className="bg-zinc-900 border border-zinc-800 p-12 text-center">
+          <Loader2 className="w-6 h-6 text-zinc-500 animate-spin mx-auto" />
+          <p className="text-zinc-500 text-sm mt-3">Loading...</p>
+        </div>
       </div>
     )
   }
 
-  const handleSave = async () => {
-    if (!vendorId) return
-    setSaving(true)
-    try {
-      const { data, error } = await supabase.from('vendors').update({ ...formData, updated_at: new Date().toISOString() }).eq('id', vendorId).select().single()
-      if (error) throw error
-      setVendor(data)
-      setMessage({ type: 'success', text: 'Shipping settings saved' })
-    } catch { setMessage({ type: 'error', text: 'Failed to save' }) }
-    finally { setSaving(false) }
-  }
-
   return (
     <div className="space-y-6">
-      <SectionHeader title="Shipping" description="Configure shipping rates and free shipping thresholds" />
-      {message && <StatusMessage type={message.type} text={message.text} />}
+      <div className="border-b border-zinc-800 pb-4">
+        <h2 className="text-xl font-light text-white">Shipping</h2>
+        <p className="text-sm text-zinc-500 mt-1">Configure shipping rates and free shipping thresholds</p>
+      </div>
 
-      <Card>
-        <CardHeader icon={Truck} title="Shipping Rates" />
-        <div className="p-6 space-y-6 border-t border-zinc-900">
-          <FormField label="Default Shipping Cost" hint="Base rate for shipping orders">
-            <div className="relative">
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">$</span>
-              <input type="number" min="0" step="0.01" value={formData.default_shipping_cost} onChange={(e) => setFormData({ ...formData, default_shipping_cost: parseFloat(e.target.value) || 0 })} className="input-field pl-8" />
+      {saveMessage && (
+        <div className="bg-emerald-900/30 border border-emerald-700 text-emerald-400 px-4 py-3 text-sm">
+          {saveMessage}
+        </div>
+      )}
+
+      {saveError && (
+        <div className="bg-red-900/30 border border-red-700 text-red-400 px-4 py-3 text-sm">
+          {saveError}
+        </div>
+      )}
+
+      <div className="bg-zinc-900 border border-zinc-800">
+        <div className="px-6 py-4 border-b border-zinc-800 flex items-center gap-3">
+          <Truck className="w-5 h-5 text-zinc-400" />
+          <span className="text-sm font-medium text-white">Shipping Rates</span>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Default Shipping Cost */}
+          <div>
+            <label className="block text-sm text-zinc-300 mb-2">Default Shipping Cost</label>
+            <div className="flex items-center gap-2">
+              <span className="text-zinc-500">$</span>
+              <input
+                type="text"
+                value={shippingCost}
+                onChange={(e) => setShippingCost(e.target.value)}
+                placeholder="0.00"
+                className="flex-1 bg-zinc-950 border border-zinc-700 px-4 py-2 text-white text-sm focus:outline-none focus:border-zinc-500"
+              />
             </div>
-          </FormField>
+            <p className="text-xs text-zinc-600 mt-1">Base rate for shipping orders</p>
+          </div>
 
-          <div className="pt-4 border-t border-zinc-900">
+          {/* Free Shipping Toggle */}
+          <div className="pt-4 border-t border-zinc-800">
             <div className="flex items-center justify-between">
-              <div><div className="text-sm font-light text-white">Free Shipping</div><div className="text-xs text-zinc-500 mt-0.5">Offer free shipping above a threshold</div></div>
-              <Toggle checked={formData.free_shipping_enabled} onChange={(v) => setFormData({ ...formData, free_shipping_enabled: v })} />
+              <div>
+                <div className="text-sm text-zinc-300">Free Shipping</div>
+                <div className="text-xs text-zinc-600 mt-0.5">Offer free shipping above a threshold</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFreeShippingOn(!freeShippingOn)}
+                className={`relative w-12 h-6 rounded-full transition-colors ${freeShippingOn ? 'bg-emerald-600' : 'bg-zinc-700'}`}
+              >
+                <div
+                  className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${freeShippingOn ? 'left-7' : 'left-1'}`}
+                />
+              </button>
             </div>
           </div>
 
-          {formData.free_shipping_enabled && (
-            <FormField label="Free Shipping Threshold" hint="Orders above this amount qualify">
-              <div className="relative">
-                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-500">$</span>
-                <input type="number" min="0" step="0.01" value={formData.free_shipping_threshold} onChange={(e) => setFormData({ ...formData, free_shipping_threshold: parseFloat(e.target.value) || 0 })} className="input-field pl-8" />
+          {/* Free Shipping Threshold */}
+          {freeShippingOn && (
+            <div>
+              <label className="block text-sm text-zinc-300 mb-2">Free Shipping Threshold</label>
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500">$</span>
+                <input
+                  type="text"
+                  value={freeThreshold}
+                  onChange={(e) => setFreeThreshold(e.target.value)}
+                  placeholder="0.00"
+                  className="flex-1 bg-zinc-950 border border-zinc-700 px-4 py-2 text-white text-sm focus:outline-none focus:border-zinc-500"
+                />
               </div>
-            </FormField>
+              <p className="text-xs text-zinc-600 mt-1">Orders above this amount qualify for free shipping</p>
+            </div>
           )}
         </div>
-      </Card>
+      </div>
 
-      <SaveButton saving={saving} onClick={handleSave} />
+      {/* Save Button */}
+      <div className="flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="flex items-center gap-2 px-6 py-2.5 bg-white text-black text-sm font-medium hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              Save Changes
+            </>
+          )}
+        </button>
+      </div>
     </div>
   )
 }
@@ -1866,6 +2155,14 @@ function SupplierForm({ form, setForm }: { form: any; setForm: (f: any) => void 
 
 function SectionHeader({ title, description, action }: { title: string; description: string; action?: React.ReactNode }) {
   return <div className="flex items-start justify-between"><div><h1 className="text-xl font-light text-white tracking-wide">{title}</h1><p className="text-zinc-500 text-sm font-light mt-1">{description}</p></div>{action}</div>
+}
+
+function DataToolsSettings() {
+  return (
+    <div className="space-y-6">
+      <CogsBackfill />
+    </div>
+  )
 }
 
 function Card({ children }: { children: React.ReactNode }) {
