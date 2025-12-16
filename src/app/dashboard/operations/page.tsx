@@ -40,6 +40,9 @@ interface DailyAuditSummary {
   location?: {
     name: string
   }
+  completion_rate?: number
+  products_audited?: number
+  total_products?: number
 }
 
 interface InventoryAdjustment {
@@ -172,7 +175,50 @@ export default function OperationsPage() {
         auditDates: auditsRes.data?.map(a => a.audit_date)
       })
 
-      setAudits(auditsRes.data || [])
+      const auditsData = auditsRes.data || []
+
+      // Calculate completion rates for each audit
+      const auditsWithCompletion = await Promise.all(
+        auditsData.map(async (audit) => {
+          try {
+            // Get total products in inventory for this location
+            const { data: inventoryData } = await supabase
+              .from('inventory')
+              .select('product_id')
+              .eq('vendor_id', vendorId)
+              .eq('location_id', audit.location_id)
+
+            const totalProducts = inventoryData?.length || 0
+
+            // Get unique products audited on this date
+            const startOfDay = `${audit.audit_date}T00:00:00`
+            const endOfDay = `${audit.audit_date}T23:59:59`
+
+            const { data: adjustmentsData } = await supabase
+              .from('inventory_adjustments')
+              .select('product_id')
+              .eq('vendor_id', vendorId)
+              .eq('location_id', audit.location_id)
+              .gte('created_at', startOfDay)
+              .lte('created_at', endOfDay)
+
+            const uniqueProductsAudited = new Set(adjustmentsData?.map(a => a.product_id) || []).size
+            const completionRate = totalProducts > 0 ? (uniqueProductsAudited / totalProducts) * 100 : 0
+
+            return {
+              ...audit,
+              completion_rate: completionRate,
+              products_audited: uniqueProductsAudited,
+              total_products: totalProducts
+            }
+          } catch (err) {
+            console.error('Error calculating completion rate:', err)
+            return audit
+          }
+        })
+      )
+
+      setAudits(auditsWithCompletion)
       setInventoryAdjustments(adjustmentsRes.data || [])
       setSafeBalances(safesRes.data || [])
       setSafeTransactions(transactionsRes.data || [])
@@ -262,7 +308,12 @@ export default function OperationsPage() {
   const today = format(new Date(), 'yyyy-MM-dd')
   const todayAudits = audits.filter(a => a.audit_date === today)
   console.log('Today audits filtered:', { total: audits.length, today: todayAudits.length, totalLocations, todayDate: today })
-  const auditCompletionRate = totalLocations > 0 ? (todayAudits.length / totalLocations) * 100 : 0
+
+  // Calculate average product completion rate (not location completion)
+  const todayAuditsWithCompletion = todayAudits.filter(a => a.completion_rate !== undefined)
+  const auditCompletionRate = todayAuditsWithCompletion.length > 0
+    ? todayAuditsWithCompletion.reduce((sum, a) => sum + (a.completion_rate || 0), 0) / todayAuditsWithCompletion.length
+    : 0
 
   const safesReconciled = safeBalances.filter(s =>
     s.last_transaction_at && isToday(new Date(s.last_transaction_at))
@@ -348,19 +399,28 @@ export default function OperationsPage() {
               <div className="p-6 bg-zinc-950 border border-zinc-800">
                 <div className="flex items-start justify-between mb-4">
                   <div className="p-2 bg-zinc-900 border border-zinc-800">
-                    <ClipboardCheck className="w-5 h-5 text-zinc-400" />
+                    <ClipboardCheck className={`w-5 h-5 ${
+                      auditCompletionRate >= 100 ? 'text-emerald-400' :
+                      auditCompletionRate >= 75 ? 'text-yellow-400' :
+                      'text-zinc-400'
+                    }`} />
                   </div>
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-white tabular-nums">
+                    <div className={`text-2xl font-bold tabular-nums ${
+                      auditCompletionRate >= 100 ? 'text-emerald-400' :
+                      auditCompletionRate >= 75 ? 'text-yellow-400' :
+                      'text-white'
+                    }`}>
                       {Math.round(auditCompletionRate)}%
                     </div>
                     <div className="text-xs text-zinc-600 mt-1">
-                      {todayAudits.length}/{totalLocations}
+                      {todayAudits.reduce((sum, a) => sum + (a.products_audited || 0), 0)}/
+                      {todayAudits.reduce((sum, a) => sum + (a.total_products || 0), 0)} products
                     </div>
                   </div>
                 </div>
                 <div className="text-sm text-zinc-400">Audit Completion</div>
-                <div className="text-xs text-zinc-600 mt-1">Today</div>
+                <div className="text-xs text-zinc-600 mt-1">Today ({todayAudits.length}/{totalLocations} locations)</div>
               </div>
 
               <div className="p-6 bg-zinc-950 border border-zinc-800">
@@ -450,6 +510,18 @@ export default function OperationsPage() {
                               </div>
                               <div className="flex items-center gap-3 text-xs text-zinc-500">
                                 <span>{audit.adjustment_count} adjustments</span>
+                                {audit.completion_rate !== undefined && (
+                                  <>
+                                    <span>•</span>
+                                    <span className={`font-medium ${
+                                      audit.completion_rate >= 100 ? 'text-emerald-400' :
+                                      audit.completion_rate >= 75 ? 'text-yellow-400' :
+                                      'text-white'
+                                    }`}>
+                                      {audit.completion_rate.toFixed(0)}% complete
+                                    </span>
+                                  </>
+                                )}
                                 <span>•</span>
                                 <span>{format(new Date(audit.last_adjustment), 'h:mm a')}</span>
                               </div>
@@ -581,6 +653,12 @@ export default function OperationsPage() {
                   const dayTotal = dayAudits.reduce((sum, a) => sum + Number(a.net_change || 0), 0)
                   const dayAdjustments = dayAudits.reduce((sum, a) => sum + (a.adjustment_count || 0), 0)
 
+                  // Calculate average completion rate for the day
+                  const auditsWithCompletion = dayAudits.filter(a => a.completion_rate !== undefined)
+                  const avgCompletionRate = auditsWithCompletion.length > 0
+                    ? auditsWithCompletion.reduce((sum, a) => sum + (a.completion_rate || 0), 0) / auditsWithCompletion.length
+                    : 0
+
                   return (
                     <div key={date} className="bg-zinc-950 border border-zinc-800">
                       {/* Day Header */}
@@ -596,6 +674,15 @@ export default function OperationsPage() {
                             </span>
                           </div>
                           <div className="flex items-center gap-4 text-xs">
+                            {auditsWithCompletion.length > 0 && (
+                              <span className={`font-medium ${
+                                avgCompletionRate >= 100 ? 'text-emerald-400' :
+                                avgCompletionRate >= 75 ? 'text-yellow-400' :
+                                'text-white'
+                              }`}>
+                                {avgCompletionRate.toFixed(0)}% avg complete
+                              </span>
+                            )}
                             <span className="text-zinc-500">{dayAdjustments} adjustments</span>
                             <span className={`font-mono font-semibold ${dayTotal < 0 ? 'text-white' : 'text-zinc-500'}`}>
                               {dayTotal < 0 ? '-' : '+'}{formatCurrency(Math.abs(dayTotal))}
@@ -631,6 +718,19 @@ export default function OperationsPage() {
                                       {format(new Date(audit.first_adjustment), 'h:mm a')} - {format(new Date(audit.last_adjustment), 'h:mm a')}
                                     </div>
                                     <span>{audit.adjustment_count} adjustments</span>
+                                    {audit.completion_rate !== undefined && (
+                                      <div className={`flex items-center gap-1.5 font-medium ${
+                                        audit.completion_rate >= 100 ? 'text-emerald-400' :
+                                        audit.completion_rate >= 75 ? 'text-yellow-400' :
+                                        'text-white'
+                                      }`}>
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        {audit.completion_rate.toFixed(0)}% complete
+                                        <span className="text-zinc-600">
+                                          ({audit.products_audited}/{audit.total_products})
+                                        </span>
+                                      </div>
+                                    )}
                                     {shrinkage > 0 && (
                                       <span className="text-white">
                                         {formatCurrency(shrinkage)} shrinkage

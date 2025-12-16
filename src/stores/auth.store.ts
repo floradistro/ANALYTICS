@@ -11,6 +11,7 @@ interface AuthState {
   session: Session | null
   vendor: Vendor | null
   vendorId: string | null
+  userId: string | null // Database user ID (not auth user id)
   isLoading: boolean
   error: string | null
 
@@ -18,6 +19,7 @@ interface AuthState {
   setSession: (session: Session | null) => void
   setVendor: (vendor: Vendor | null) => void
   setVendorId: (vendorId: string | null) => void
+  setUserId: (userId: string | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
 
@@ -33,6 +35,7 @@ export const useAuthStore = create<AuthState>()(
       session: null,
       vendor: null,
       vendorId: null,
+      userId: null,
       isLoading: true,
       error: null,
 
@@ -40,6 +43,7 @@ export const useAuthStore = create<AuthState>()(
       setSession: (session) => set({ session }),
       setVendor: (vendor) => set({ vendor }),
       setVendorId: (vendorId) => set({ vendorId }),
+      setUserId: (userId) => set({ userId }),
       setLoading: (isLoading) => set({ isLoading }),
       setError: (error) => set({ error }),
 
@@ -61,7 +65,7 @@ export const useAuthStore = create<AuthState>()(
             // Get user's vendor info - use auth_user_id to match Supabase Auth user
             const { data: userData, error: userError } = await supabase
               .from('users')
-              .select('vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
+              .select('id, vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
               .eq('auth_user_id', data.user.id)
               .maybeSingle()
 
@@ -83,6 +87,7 @@ export const useAuthStore = create<AuthState>()(
               user: data.user,
               session: data.session,
               vendorId: userData.vendor_id,
+              userId: userData.id,
               vendor: vendorData,
               isLoading: false,
             })
@@ -106,6 +111,7 @@ export const useAuthStore = create<AuthState>()(
           session: null,
           vendor: null,
           vendorId: null,
+          userId: null,
           error: null,
         })
       },
@@ -119,7 +125,7 @@ export const useAuthStore = create<AuthState>()(
           if (session?.user) {
             const { data: userData } = await supabase
               .from('users')
-              .select('vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
+              .select('id, vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
               .eq('auth_user_id', session.user.id)
               .maybeSingle()
 
@@ -130,6 +136,7 @@ export const useAuthStore = create<AuthState>()(
                 user: session.user,
                 session,
                 vendorId: userData.vendor_id,
+                userId: userData.id,
                 vendor: vendorData,
                 isLoading: false,
               })
@@ -146,7 +153,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ vendorId: state.vendorId }),
+      partialize: (state) => ({ vendorId: state.vendorId, userId: state.userId }),
     }
   )
 )
