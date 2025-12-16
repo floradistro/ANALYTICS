@@ -473,7 +473,7 @@ export default function MapDashboardPage() {
       while (true) {
         const { data: visitors } = await supabase
           .from('website_visitors')
-          .select('id, session_id, visitor_id, latitude, longitude, city, region, country, device_type, created_at, channel, utm_source, utm_medium, utm_campaign, referrer, browser, os, is_returning, page_url')
+          .select('id, session_id, visitor_id, latitude, longitude, city, region, country, device_type, created_at, channel, utm_source, utm_medium, utm_campaign, referrer, browser, os, is_returning, page_url, geolocation_source, geolocation_accuracy')
           .eq('vendor_id', vendorId)
           .not('latitude', 'is', null)
           .order('created_at', { ascending: false })
@@ -490,6 +490,14 @@ export default function MapDashboardPage() {
       const sessionIds = (visitors || []).map(v => v.session_id).filter(Boolean)
       const pageViewCounts = new Map<string, number>()
       const eventCounts = new Map<string, { total: number; products: number; carts: number; purchases: number; revenue: number }>()
+
+      // Log geolocation source distribution for debugging
+      const geoSourceCounts = new Map<string, number>()
+      for (const v of visitors || []) {
+        const source = v.geolocation_source || 'unknown'
+        geoSourceCounts.set(source, (geoSourceCounts.get(source) || 0) + 1)
+      }
+      console.log('[Map] Geolocation sources:', Object.fromEntries(geoSourceCounts))
 
       if (sessionIds.length > 0) {
         // Get page view counts
@@ -540,20 +548,37 @@ export default function MapDashboardPage() {
             try { landingPage = new URL(visitor.page_url).pathname } catch {}
           }
 
-          // Use city/region to get coordinates (IP geolocation lat/lng is often wrong - points to datacenters)
+          // Use geolocation with priority: browser_gps > ipinfo > city_centroid_backfill > city lookup > vercel headers
           let coords: { lat: number; lng: number } | null = null
-          if (visitor.city && visitor.region) {
-            coords = getCityCoordinates(visitor.city, visitor.region)
-          }
-          // Fallback to raw lat/lng only if we couldn't geocode by city
-          if (!coords && visitor.latitude && visitor.longitude) {
+          const geoSource = visitor.geolocation_source
+
+          // Priority 1: Use database coordinates if from accurate sources
+          if ((geoSource === 'browser_gps' || geoSource === 'ipinfo' || geoSource === 'city_centroid_backfill') && visitor.latitude && visitor.longitude) {
             coords = { lat: visitor.latitude, lng: visitor.longitude }
           }
+          // Priority 2: Use city/region lookup for ungeocoded records
+          else if (visitor.city && visitor.region && !visitor.latitude) {
+            coords = getCityCoordinates(visitor.city, visitor.region)
+          }
+          // Priority 3: Fallback to raw lat/lng (old vercel datacenter IPs)
+          else if (visitor.latitude && visitor.longitude) {
+            coords = { lat: visitor.latitude, lng: visitor.longitude }
+          }
+
           if (!coords) continue
 
-          // Small jitter to spread visitors within same city
-          const jitterLat = (Math.random() - 0.5) * 0.02
-          const jitterLng = (Math.random() - 0.5) * 0.02
+          // Small jitter to spread visitors within same location
+          // Less jitter for GPS (more accurate), more jitter for city-level
+          let jitterAmount = 0.02 // Default: ~2km radius
+          if (geoSource === 'browser_gps') {
+            jitterAmount = 0.002 // GPS: ~200m radius (very accurate)
+          } else if (geoSource === 'ipinfo') {
+            jitterAmount = 0.01 // ipinfo: ~1km radius (city-accurate)
+          } else if (geoSource === 'city_centroid_backfill') {
+            jitterAmount = 0.08 // Backfilled: ~8km radius (spread across city)
+          }
+          const jitterLat = (Math.random() - 0.5) * jitterAmount
+          const jitterLng = (Math.random() - 0.5) * jitterAmount
 
           trafficPoints.push({
             lat: coords.lat + jitterLat, lng: coords.lng + jitterLng, type: 'traffic',

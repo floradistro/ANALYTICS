@@ -102,22 +102,110 @@ export async function POST(request: NextRequest) {
       source,
       // User agent from edge middleware
       user_agent,
-      // Geo from edge middleware
+      // Geo from edge middleware or browser
       city: edgeCity,
       region: edgeRegion,
       country: edgeCountry,
+      // Browser-provided geolocation (most accurate)
+      latitude: browserLat,
+      longitude: browserLng,
+      geolocation_source: browserGeoSource,
+      geolocation_accuracy: browserGeoAccuracy,
     } = body
 
     if (!vendor_id) {
       return NextResponse.json({ error: 'vendor_id required' }, { status: 400, headers: corsHeaders })
     }
 
-    // Get geolocation - prefer edge-provided, fallback to Vercel headers
-    const latitude = request.headers.get('x-vercel-ip-latitude')
-    const longitude = request.headers.get('x-vercel-ip-longitude')
-    const city = edgeCity || request.headers.get('x-vercel-ip-city')
-    const region = edgeRegion || request.headers.get('x-vercel-ip-country-region')
-    const country = edgeCountry || request.headers.get('x-vercel-ip-country')
+    // Get geolocation with priority: browser GPS > ipinfo.io > Vercel headers
+    let latitude: number | null = null
+    let longitude: number | null = null
+    let city: string | null = edgeCity || request.headers.get('x-vercel-ip-city')
+    let region: string | null = edgeRegion || request.headers.get('x-vercel-ip-country-region')
+    let country: string | null = edgeCountry || request.headers.get('x-vercel-ip-country')
+    let postalCode: string | null = null
+    let geoSource = 'vercel_headers'
+    let geoAccuracy: number | null = null
+
+    // Priority 1: Browser-provided GPS coordinates (most accurate)
+    if (browserLat && browserLng && browserGeoSource === 'browser_gps') {
+      latitude = parseFloat(String(browserLat))
+      longitude = parseFloat(String(browserLng))
+      geoSource = 'browser_gps'
+      geoAccuracy = browserGeoAccuracy || null
+      console.log('[Track API] Using browser GPS:', { latitude, longitude, accuracy: geoAccuracy })
+    }
+    // Priority 2: Use ipinfo.io for accurate IP-based geolocation
+    else {
+      const ipinfoToken = process.env.IPINFO_TOKEN
+      const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                 request.headers.get('x-real-ip') ||
+                 null
+
+      if (ipinfoToken && ip && ip !== '127.0.0.1' && !ip.startsWith('192.168.')) {
+        try {
+          console.log('[Track API] Fetching ipinfo for IP:', ip)
+          const ipinfoResponse = await fetch(`https://ipinfo.io/${ip}?token=${ipinfoToken}`, {
+            headers: { 'Accept': 'application/json' }
+          })
+
+          if (ipinfoResponse.ok) {
+            const ipinfoData = await ipinfoResponse.json()
+            console.log('[Track API] ipinfo.io response:', ipinfoData)
+
+            // Parse lat,lng from ipinfo "loc" field (format: "37.4056,-122.0775")
+            if (ipinfoData.loc) {
+              const [lat, lng] = ipinfoData.loc.split(',').map(Number)
+              if (!isNaN(lat) && !isNaN(lng)) {
+                latitude = lat
+                longitude = lng
+                geoSource = 'ipinfo'
+
+                // ipinfo Plus provides accuracy_radius (in km)
+                // Convert to meters for consistency with GPS accuracy
+                if (ipinfoData.accuracy_radius) {
+                  geoAccuracy = ipinfoData.accuracy_radius * 1000 // km to meters
+                  console.log('[Track API] ipinfo accuracy radius:', geoAccuracy, 'meters')
+                }
+
+                console.log('[Track API] Using ipinfo.io coordinates:', {
+                  latitude,
+                  longitude,
+                  postal: ipinfoData.postal,
+                  accuracy_km: ipinfoData.accuracy_radius
+                })
+              }
+            }
+
+            // Use ipinfo city/region/country/postal if available (more reliable than Vercel headers)
+            city = ipinfoData.city || city
+            region = ipinfoData.region || region
+            country = ipinfoData.country || country
+            postalCode = ipinfoData.postal || null
+
+            // Log postal code for debugging
+            if (postalCode) {
+              console.log('[Track API] ZIP code:', postalCode)
+            }
+          }
+        } catch (err) {
+          console.error('[Track API] ipinfo.io error:', err)
+          // Fall through to Vercel headers
+        }
+      }
+
+      // Priority 3: Fallback to Vercel headers (datacenter IPs, less accurate)
+      if (!latitude || !longitude) {
+        const vercelLat = request.headers.get('x-vercel-ip-latitude')
+        const vercelLng = request.headers.get('x-vercel-ip-longitude')
+        if (vercelLat && vercelLng) {
+          latitude = parseFloat(vercelLat)
+          longitude = parseFloat(vercelLng)
+          geoSource = 'vercel_headers'
+          console.log('[Track API] Using Vercel headers (datacenter):', { latitude, longitude })
+        }
+      }
+    }
 
     // Get user agent for device detection - prefer edge-provided
     const userAgent = user_agent || request.headers.get('user-agent') || ''
@@ -137,8 +225,8 @@ export async function POST(request: NextRequest) {
         vendor_id,
         session_id: sessionId,
         visitor_id,
-        latitude: latitude ? parseFloat(latitude) : null,
-        longitude: longitude ? parseFloat(longitude) : null,
+        latitude,
+        longitude,
         city: city ? decodeURIComponent(city) : null,
         region,
         country,
@@ -158,6 +246,10 @@ export async function POST(request: NextRequest) {
         screen_width,
         screen_height,
         is_returning: is_returning || false,
+        // Geolocation tracking fields
+        geolocation_source: geoSource,
+        geolocation_accuracy: geoAccuracy,
+        postal_code: postalCode,
       }, {
         onConflict: 'vendor_id,session_id'
       })
