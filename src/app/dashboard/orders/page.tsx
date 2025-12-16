@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { getDateRangeForQuery } from '@/lib/date-utils'
 import type { Order } from '@/types/database'
 import { format } from 'date-fns'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search,
   Download,
@@ -29,6 +30,7 @@ interface OrderWithCustomer extends Order {
 }
 
 type OrderStatus = 'all' | 'pending' | 'shipped' | 'delivered' | 'cancelled'
+type OrderType = 'all' | 'walk_in' | 'pickup' | 'delivery' | 'shipping'
 
 export default function OrdersPage() {
   const { vendorId } = useAuthStore()
@@ -38,10 +40,12 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<OrderStatus>('all')
+  const [typeFilter, setTypeFilter] = useState<OrderType>('all')
   const [page, setPage] = useState(0)
   const [totalCount, setTotalCount] = useState(0)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editOrderId, setEditOrderId] = useState<string | null>(null)
+  const [updatedOrderIds, setUpdatedOrderIds] = useState<Set<string>>(new Set())
   const pageSize = 20
 
   // Debounce search
@@ -70,6 +74,10 @@ export default function OrdersPage() {
 
       if (statusFilter !== 'all') {
         query = query.eq('status', statusFilter)
+      }
+
+      if (typeFilter !== 'all') {
+        query = query.eq('order_type', typeFilter)
       }
 
       if (filters.paymentMethods.length > 0) {
@@ -149,13 +157,100 @@ export default function OrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, page, statusFilter, dateRange, filters, debouncedSearch])
+  }, [vendorId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch])
 
   useEffect(() => {
     if (vendorId) {
       fetchOrders()
     }
-  }, [vendorId, page, statusFilter, dateRange, filters, debouncedSearch, fetchOrders])
+  }, [vendorId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch, fetchOrders])
+
+  // Realtime subscription for instant updates (like POS)
+  useEffect(() => {
+    if (!vendorId) return
+
+    console.log('[Orders Realtime] Setting up subscription...')
+
+    const channel = supabase
+      .channel('orders-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          filter: `vendor_id=eq.${vendorId}`
+        },
+        async (payload) => {
+          console.log('[Orders Realtime] Change detected:', payload.eventType, payload)
+
+          if (payload.eventType === 'INSERT') {
+            // New order created - fetch customer data and prepend
+            const newOrder = payload.new as Order
+            let customer: Customer | null = null
+
+            if (newOrder.customer_id) {
+              const { data } = await supabase
+                .from('customers')
+                .select('id, first_name, last_name, email')
+                .eq('id', newOrder.customer_id)
+                .single()
+
+              customer = data
+            }
+
+            setOrders(prev => [{...newOrder, customer}, ...prev])
+            setTotalCount(prev => prev + 1)
+          }
+          else if (payload.eventType === 'UPDATE') {
+            // Order updated - fetch fresh customer data and update in place
+            const updatedOrder = payload.new as Order
+            let customer: Customer | null = null
+
+            if (updatedOrder.customer_id) {
+              const { data } = await supabase
+                .from('customers')
+                .select('id, first_name, last_name, email')
+                .eq('id', updatedOrder.customer_id)
+                .single()
+
+              customer = data
+            }
+
+            setOrders(prev => prev.map(o =>
+              o.id === updatedOrder.id
+                ? { ...updatedOrder, customer: customer || o.customer }
+                : o
+            ))
+
+            // Highlight the updated order for 2 seconds
+            setUpdatedOrderIds(prev => new Set(prev).add(updatedOrder.id))
+            setTimeout(() => {
+              setUpdatedOrderIds(prev => {
+                const next = new Set(prev)
+                next.delete(updatedOrder.id)
+                return next
+              })
+            }, 2000)
+          }
+          else if (payload.eventType === 'DELETE') {
+            // Order deleted - remove from list
+            const deletedId = payload.old.id
+            setOrders(prev => prev.filter(o => o.id !== deletedId))
+            setTotalCount(prev => prev - 1)
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Orders Realtime] Subscription status:', status)
+      })
+
+    // Cleanup on unmount
+    return () => {
+      console.log('[Orders Realtime] Cleaning up subscription')
+      supabase.removeChannel(channel)
+    }
+  }, [vendorId])
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -249,6 +344,21 @@ export default function OrdersPage() {
           </div>
 
           <select
+            value={typeFilter}
+            onChange={(e) => {
+              setTypeFilter(e.target.value as OrderType)
+              setPage(0)
+            }}
+            className="px-3 py-2 bg-zinc-950 border border-zinc-800 text-zinc-300 focus:outline-none focus:border-zinc-600 text-sm"
+          >
+            <option value="all">All Types</option>
+            <option value="walk_in">Walk In</option>
+            <option value="pickup">Pickup</option>
+            <option value="delivery">Delivery</option>
+            <option value="shipping">Shipping</option>
+          </select>
+
+          <select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value as OrderStatus)
@@ -296,52 +406,77 @@ export default function OrdersPage() {
                   </td>
                 </tr>
               ) : (
-                orders.map((order) => (
-                  <tr
-                    key={order.id}
-                    onClick={() => openEdit(order.id)}
-                    className="hover:bg-zinc-900/50 cursor-pointer transition-colors group"
-                  >
-                    <td className="px-4 py-3 text-sm text-white font-mono">
-                      {order.order_number}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-400 hidden sm:table-cell">
-                      {order.customer
-                        ? `${order.customer.first_name} ${order.customer.last_name}`
-                        : <span className="text-zinc-600">Guest</span>}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-400 capitalize">
-                      {(order.order_type || '').replace('_', ' ')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getStatusBadge(order.status || 'pending')}`}>
-                        {order.status || 'pending'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getPaymentBadge(order.payment_status || 'pending')}`}>
-                        {order.payment_status || 'pending'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-white tabular-nums">
-                      {formatCurrency(order.total_amount || 0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-zinc-500 hidden lg:table-cell whitespace-nowrap">
-                      {order.created_at ? format(new Date(order.created_at), 'MMM d, h:mm a') : '-'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openEdit(order.id)
-                        }}
-                        className="p-1.5 text-zinc-600 hover:text-white hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                <AnimatePresence initial={false} mode="popLayout">
+                  {orders.map((order) => (
+                    <motion.tr
+                      key={order.id}
+                      initial={{ opacity: 0, y: -20, scale: 0.95 }}
+                      animate={{
+                        opacity: 1,
+                        y: 0,
+                        scale: 1,
+                        backgroundColor: updatedOrderIds.has(order.id) ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
+                        transition: {
+                          type: "spring",
+                          stiffness: 500,
+                          damping: 35,
+                          mass: 0.8,
+                          backgroundColor: { duration: 0.3 }
+                        }
+                      }}
+                      exit={{
+                        opacity: 0,
+                        x: -100,
+                        scale: 0.95,
+                        transition: {
+                          duration: 0.2
+                        }
+                      }}
+                      layout
+                      onClick={() => openEdit(order.id)}
+                      className="hover:bg-zinc-900/50 cursor-pointer transition-colors group"
+                    >
+                      <td className="px-4 py-3 text-sm text-white font-mono">
+                        {order.order_number}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 hidden sm:table-cell">
+                        {order.customer
+                          ? `${order.customer.first_name} ${order.customer.last_name}`
+                          : <span className="text-zinc-600">Guest</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 capitalize">
+                        {(order.order_type || '').replace('_', ' ')}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getStatusBadge(order.status || 'pending')}`}>
+                          {order.status || 'pending'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 hidden md:table-cell">
+                        <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${getPaymentBadge(order.payment_status || 'pending')}`}>
+                          {order.payment_status || 'pending'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-white tabular-nums">
+                        {formatCurrency(order.total_amount || 0)}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-zinc-500 hidden lg:table-cell whitespace-nowrap">
+                        {order.created_at ? format(new Date(order.created_at), 'MMM d, h:mm a') : '-'}
+                      </td>
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openEdit(order.id)
+                          }}
+                          className="p-1.5 text-zinc-600 hover:text-white hover:bg-zinc-800 transition-colors opacity-0 group-hover:opacity-100"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </motion.tr>
+                  ))}
+                </AnimatePresence>
               )}
             </tbody>
           </table>
