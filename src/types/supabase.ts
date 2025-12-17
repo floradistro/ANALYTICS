@@ -15124,31 +15124,58 @@ export type Database = {
           products_skipped: number
         }[]
       }
-      create_purchase_order_atomic: {
-        Args: {
-          p_expected_delivery_date?: string
-          p_idempotency_key?: string
-          p_items: string
-          p_location_id?: string
-          p_notes?: string
-          p_po_type: string
-          p_shipping_cost?: number
-          p_supplier_id?: string
-          p_tax_amount?: number
-          p_vendor_id: string
-          p_wholesale_customer_id?: string
-        }
-        Returns: {
-          items_created: number
-          po_id: string
-          po_number: string
-          shipping_cost: number
-          status: string
-          subtotal: number
-          tax_amount: number
-          total_amount: number
-        }[]
-      }
+      create_purchase_order_atomic:
+        | {
+            Args: {
+              p_created_by_user_id?: string
+              p_expected_delivery_date?: string
+              p_idempotency_key?: string
+              p_items: string
+              p_location_id?: string
+              p_notes?: string
+              p_po_type: string
+              p_shipping_cost?: number
+              p_supplier_id?: string
+              p_tax_amount?: number
+              p_vendor_id: string
+              p_wholesale_customer_id?: string
+            }
+            Returns: {
+              items_created: number
+              po_id: string
+              po_number: string
+              shipping_cost: number
+              status: string
+              subtotal: number
+              tax_amount: number
+              total_amount: number
+            }[]
+          }
+        | {
+            Args: {
+              p_expected_delivery_date?: string
+              p_idempotency_key?: string
+              p_items: string
+              p_location_id?: string
+              p_notes?: string
+              p_po_type: string
+              p_shipping_cost?: number
+              p_supplier_id?: string
+              p_tax_amount?: number
+              p_vendor_id: string
+              p_wholesale_customer_id?: string
+            }
+            Returns: {
+              items_created: number
+              po_id: string
+              po_number: string
+              shipping_cost: number
+              status: string
+              subtotal: number
+              tax_amount: number
+              total_amount: number
+            }[]
+          }
       decrement_inventory: {
         Args: { p_inventory_id: string; p_quantity: number }
         Returns: Json
@@ -15760,10 +15787,20 @@ export type Database = {
           orders_updated: number
         }[]
       }
-      receive_po_items: {
-        Args: { p_items: Json; p_location_id: string; p_po_id: string }
-        Returns: Json
-      }
+      receive_po_items:
+        | {
+            Args: { p_items: Json; p_location_id: string; p_po_id: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_items: Json
+              p_location_id: string
+              p_po_id: string
+              p_received_by_user_id?: string
+            }
+            Returns: Json
+          }
       record_affiliate_click: {
         Args: {
           p_ip_address?: unknown

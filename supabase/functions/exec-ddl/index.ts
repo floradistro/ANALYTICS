@@ -27,7 +27,7 @@ serve(async (req) => {
     // Connect directly to Postgres
     const client = new postgres.Client({
       user: 'postgres',
-      password: Deno.env.get('DB_PASSWORD') || 'fuckshitpisasscunt',
+      password: Deno.env.get('DB_PASSWORD') || 'holyfuckingshitfuck',
       hostname: 'db.uaednwpxursknmwdeejn.supabase.co',
       port: 5432,
       database: 'postgres',
@@ -45,7 +45,9 @@ serve(async (req) => {
     await client.end()
 
     return new Response(
-      JSON.stringify({ success: true, result }),
+      JSON.stringify({ success: true, result }, (_, value) =>
+        typeof value === 'bigint' ? Number(value) : value
+      ),
       {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }

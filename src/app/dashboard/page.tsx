@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { DollarSign, ShoppingCart, Users, TrendingUp, Receipt, Tag, Clock } from 'lucide-react'
+import { DollarSign, ShoppingCart, Users, TrendingUp, Receipt, Tag, Clock, AlertTriangle } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { useOrdersStore, isPaidOrder } from '@/stores/orders.store'
@@ -9,6 +9,7 @@ import { MetricCard } from '@/components/ui/MetricCard'
 import { SalesChart } from '@/components/charts/SalesChart'
 import { OrderTypePieChart } from '@/components/charts/OrderTypePieChart'
 import { TopProductsChart } from '@/components/charts/TopProductsChart'
+import { CheckoutSuccessChart } from '@/components/charts/CheckoutSuccessChart'
 import { FilterBar } from '@/components/filters/FilterBar'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
@@ -19,6 +20,17 @@ interface TopProduct {
   name: string
   totalSold: number
   revenue: number
+}
+
+interface FailedCheckout {
+  id: string
+  customer_email: string | null
+  customer_name: string | null
+  total_amount: number
+  status: string
+  error_message: string | null
+  source: string
+  created_at: string
 }
 
 
@@ -46,10 +58,41 @@ export default function DashboardOverview() {
 
   // Additional state for data not in orders store
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
+  const [failedCheckouts, setFailedCheckouts] = useState<FailedCheckout[]>([])
   const [customerCount, setCustomerCount] = useState(0)
   const [customerGrowth, setCustomerGrowth] = useState(0)
   const [revenueGrowth, setRevenueGrowth] = useState(0)
   const [ordersGrowth, setOrdersGrowth] = useState(0)
+  const [checkoutData, setCheckoutData] = useState<{
+    daily: Array<{
+      date: string
+      approved: number
+      declined: number
+      error: number
+      total: number
+      successRate: number
+    }>
+    totals: {
+      approved: number
+      declined: number
+      error: number
+      total: number
+      successRate: number
+      totalRevenue: number
+      lostRevenue: number
+    }
+  }>({
+    daily: [],
+    totals: {
+      approved: 0,
+      declined: 0,
+      error: 0,
+      total: 0,
+      successRate: 0,
+      totalRevenue: 0,
+      lostRevenue: 0,
+    },
+  })
 
   // Sync filters with orders store
   useEffect(() => {
@@ -128,6 +171,147 @@ export default function DashboardOverview() {
     }
   }, [vendorId, dateRange, getTotalRevenue, getTotalOrders])
 
+  // Fetch checkout analytics data
+  const fetchCheckoutAnalytics = useCallback(async () => {
+    if (!vendorId) return
+
+    const { start, end, startDate: startDateObj, endDate: endDateObj } = getDateRangeForQuery()
+
+    try {
+      const { data: checkoutAttempts, error } = await supabase
+        .from('checkout_attempts')
+        .select('status, total_amount, created_at, source')
+        .eq('vendor_id', vendorId)
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: true })
+
+      if (error) {
+        console.error('Failed to fetch checkout attempts:', error)
+        return
+      }
+
+      if (!checkoutAttempts || checkoutAttempts.length === 0) {
+        setCheckoutData({
+          daily: [],
+          totals: {
+            approved: 0,
+            declined: 0,
+            error: 0,
+            total: 0,
+            successRate: 0,
+            totalRevenue: 0,
+            lostRevenue: 0,
+          },
+        })
+        return
+      }
+
+      // Group by date
+      const dailyMap = new Map<string, {
+        approved: number
+        declined: number
+        error: number
+        total: number
+        approvedRevenue: number
+        lostRevenue: number
+      }>()
+
+      // Generate all dates in range
+      const dateStrings = generateDateRange(startDateObj, endDateObj)
+      dateStrings.forEach(date => {
+        dailyMap.set(date, { approved: 0, declined: 0, error: 0, total: 0, approvedRevenue: 0, lostRevenue: 0 })
+      })
+
+      // Aggregate data
+      let totalApproved = 0
+      let totalDeclined = 0
+      let totalError = 0
+      let totalRevenue = 0
+      let lostRevenue = 0
+
+      checkoutAttempts.forEach((attempt: { status: string; total_amount: number; created_at: string }) => {
+        const date = format(new Date(attempt.created_at), 'yyyy-MM-dd')
+        const dayData = dailyMap.get(date) || { approved: 0, declined: 0, error: 0, total: 0, approvedRevenue: 0, lostRevenue: 0 }
+
+        dayData.total++
+
+        if (attempt.status === 'approved') {
+          dayData.approved++
+          dayData.approvedRevenue += attempt.total_amount || 0
+          totalApproved++
+          totalRevenue += attempt.total_amount || 0
+        } else if (attempt.status === 'declined') {
+          dayData.declined++
+          dayData.lostRevenue += attempt.total_amount || 0
+          totalDeclined++
+          lostRevenue += attempt.total_amount || 0
+        } else if (attempt.status === 'error') {
+          dayData.error++
+          dayData.lostRevenue += attempt.total_amount || 0
+          totalError++
+          lostRevenue += attempt.total_amount || 0
+        }
+
+        dailyMap.set(date, dayData)
+      })
+
+      const daily = Array.from(dailyMap.entries()).map(([date, data]) => ({
+        date,
+        approved: data.approved,
+        declined: data.declined,
+        error: data.error,
+        total: data.total,
+        successRate: data.total > 0 ? (data.approved / data.total) * 100 : 0,
+      }))
+
+      const total = totalApproved + totalDeclined + totalError
+
+      setCheckoutData({
+        daily,
+        totals: {
+          approved: totalApproved,
+          declined: totalDeclined,
+          error: totalError,
+          total,
+          successRate: total > 0 ? (totalApproved / total) * 100 : 0,
+          totalRevenue,
+          lostRevenue,
+        },
+      })
+    } catch (err) {
+      console.error('Error fetching checkout analytics:', err)
+    }
+  }, [vendorId, dateRange])
+
+  // Fetch failed checkouts for the feed
+  const fetchFailedCheckouts = useCallback(async () => {
+    if (!vendorId) return
+
+    const { start, end } = getDateRangeForQuery()
+
+    try {
+      const { data, error } = await supabase
+        .from('checkout_attempts')
+        .select('id, customer_email, customer_name, total_amount, status, error_message, source, created_at')
+        .eq('vendor_id', vendorId)
+        .in('status', ['declined', 'error'])
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: false })
+        .limit(10)
+
+      if (error) {
+        console.error('Failed to fetch failed checkouts:', error)
+        return
+      }
+
+      setFailedCheckouts(data || [])
+    } catch (err) {
+      console.error('Error fetching failed checkouts:', err)
+    }
+  }, [vendorId, dateRange])
+
   // Fetch top products (requires order_items join)
   const fetchTopProducts = useCallback(async () => {
     if (!vendorId) return
@@ -202,8 +386,10 @@ export default function DashboardOverview() {
     if (vendorId && !ordersLoading) {
       fetchAdditionalData()
       fetchTopProducts()
+      fetchCheckoutAnalytics()
+      fetchFailedCheckouts()
     }
-  }, [vendorId, ordersLoading, fetchAdditionalData, fetchTopProducts])
+  }, [vendorId, ordersLoading, fetchAdditionalData, fetchTopProducts, fetchCheckoutAnalytics, fetchFailedCheckouts])
 
   // Compute derived values from centralized store
   const paidOrders = getPaidOrders()
@@ -337,6 +523,9 @@ export default function DashboardOverview() {
         <OrderTypePieChart data={orderTypeBreakdown} />
       </div>
 
+      {/* Checkout Analytics */}
+      <CheckoutSuccessChart data={checkoutData.daily} totals={checkoutData.totals} />
+
       {/* Top Products */}
       <TopProductsChart data={topProducts} />
 
@@ -400,6 +589,84 @@ export default function DashboardOverview() {
           </table>
         </div>
       </div>
+
+      {/* Failed Checkouts Feed */}
+      {failedCheckouts.length > 0 && (
+        <div className="bg-zinc-950 border border-red-900/30 p-4 lg:p-6">
+          <div className="flex items-center gap-2 mb-4 lg:mb-6">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <h3 className="text-xs lg:text-sm font-light text-white tracking-wide">
+              Failed Checkouts
+            </h3>
+            <span className="ml-auto text-[10px] lg:text-xs text-red-400 font-light">
+              {failedCheckouts.length} failed attempt{failedCheckouts.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <div className="overflow-x-auto -mx-4 lg:mx-0">
+            <table className="w-full min-w-[600px]">
+              <thead className="border-b border-zinc-900">
+                <tr>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Customer
+                  </th>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Error
+                  </th>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Amount
+                  </th>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Source
+                  </th>
+                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
+                    Time
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-900">
+                {failedCheckouts.map((checkout) => (
+                  <tr key={checkout.id} className="hover:bg-red-900/10 transition-colors">
+                    <td className="px-3 lg:px-4 py-3 lg:py-4">
+                      <div className="text-xs lg:text-sm font-light text-white">
+                        {checkout.customer_name || 'Guest'}
+                      </div>
+                      {checkout.customer_email && (
+                        <div className="text-[10px] lg:text-xs text-zinc-500">
+                          {checkout.customer_email}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 lg:px-4 py-3 lg:py-4">
+                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light ${
+                        checkout.status === 'declined'
+                          ? 'bg-red-900/30 text-red-300 border border-red-800/30'
+                          : 'bg-amber-900/30 text-amber-300 border border-amber-800/30'
+                      }`}>
+                        {checkout.status}
+                      </span>
+                    </td>
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-400 font-light max-w-[200px] truncate">
+                      {checkout.error_message || '—'}
+                    </td>
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-red-300 font-light">
+                      {formatCurrency(checkout.total_amount)}
+                    </td>
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light capitalize">
+                      {checkout.source?.replace('_', ' ') || 'web'}
+                    </td>
+                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light whitespace-nowrap">
+                      {format(new Date(checkout.created_at), 'MMM d, h:mm a')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

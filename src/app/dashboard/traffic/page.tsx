@@ -8,7 +8,8 @@ import { getDateRangeForQuery } from '@/lib/date-utils'
 import {
   Users, Eye, Globe,
   TrendingUp, ShoppingCart, DollarSign,
-  Target, RefreshCw
+  Target, RefreshCw, CreditCard, CheckCircle,
+  XCircle, ArrowRight
 } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { nivoTheme, colors, chartGradients } from '@/lib/theme'
@@ -55,6 +56,17 @@ interface EventRecord {
   created_at: string
 }
 
+interface CheckoutAttemptRecord {
+  id: string
+  status: 'pending' | 'approved' | 'declined' | 'error' | 'fraud_review'
+  total_amount: number
+  processor_error_message?: string
+  customer_error_message?: string
+  payment_method?: string
+  source?: string
+  created_at: string
+}
+
 export default function WebAnalyticsPage() {
   const { vendorId } = useAuthStore()
   const { dateRange } = useDashboardStore()
@@ -65,6 +77,7 @@ export default function WebAnalyticsPage() {
   const [visitors, setVisitors] = useState<VisitorRecord[]>([])
   const [pageViews, setPageViews] = useState<PageViewRecord[]>([])
   const [events, setEvents] = useState<EventRecord[]>([])
+  const [checkoutAttempts, setCheckoutAttempts] = useState<CheckoutAttemptRecord[]>([])
 
   // Previous period data for growth
   const [prevVisitors, setPrevVisitors] = useState<VisitorRecord[]>([])
@@ -127,6 +140,16 @@ export default function WebAnalyticsPage() {
         .lte('created_at', end)
         .order('created_at', { ascending: false })
 
+      // Fetch checkout attempts (e-commerce only for funnel)
+      const { data: checkoutData } = await supabase
+        .from('checkout_attempts')
+        .select('id, status, total_amount, processor_error_message, customer_error_message, payment_method, source, created_at')
+        .eq('vendor_id', vendorId)
+        .eq('source', 'web') // Only e-commerce checkouts
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: false })
+
       // Realtime visitors (last 5 minutes for "online" count)
       const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
       const { data: realtimeData } = await supabase
@@ -138,6 +161,7 @@ export default function WebAnalyticsPage() {
       setVisitors(visitorData || [])
       setPageViews(pageViewData || [])
       setEvents(eventData || [])
+      setCheckoutAttempts(checkoutData || [])
       setPrevVisitors(prevVisitorData as VisitorRecord[] || [])
       setPrevPageViews(prevPageViewData as PageViewRecord[] || [])
       setRealtimeVisitors(realtimeData?.length || 0)
@@ -380,8 +404,21 @@ export default function WebAnalyticsPage() {
   // Conversion stats
   const productViews = events.filter(e => e.event_name === 'view_product').length
   const addToCarts = events.filter(e => e.event_name === 'add_to_cart').length
+  const beginCheckouts = events.filter(e => e.event_name === 'begin_checkout' || e.event_name === 'checkout_started').length
   const purchases = events.filter(e => e.event_name === 'purchase')
   const totalRevenue = purchases.reduce((sum, p) => sum + (p.revenue || 0), 0)
+
+  // Checkout attempt stats (from checkout_attempts table)
+  const totalCheckoutAttempts = checkoutAttempts.length
+  const successfulCheckouts = checkoutAttempts.filter(c => c.status === 'approved').length
+  const failedCheckouts = checkoutAttempts.filter(c => c.status === 'declined' || c.status === 'error').length
+  const pendingCheckouts = checkoutAttempts.filter(c => c.status === 'pending' || c.status === 'fraud_review').length
+  const checkoutSuccessRate = totalCheckoutAttempts > 0
+    ? (successfulCheckouts / totalCheckoutAttempts) * 100
+    : 0
+  const failedCheckoutRevenue = checkoutAttempts
+    .filter(c => c.status === 'declined' || c.status === 'error')
+    .reduce((sum, c) => sum + (c.total_amount || 0), 0)
 
   const formatNumber = (n: number) => {
     if (n >= 1000) return (n / 1000).toFixed(1) + 'K'
@@ -777,39 +814,144 @@ export default function WebAnalyticsPage() {
         </div>
       </div>
 
-      {/* Conversion Metrics */}
+      {/* Checkout Conversion Funnel */}
       <div className="bg-zinc-950 border border-zinc-800/50 p-6 rounded-sm">
         <h3 className="text-sm font-light text-zinc-200 mb-6 tracking-wide uppercase flex items-center gap-2">
           <Target className="w-4 h-4 text-slate-400" />
-          E-commerce Conversion
+          Checkout Conversion Funnel
         </h3>
-        <div className="grid grid-cols-5 gap-4">
-          <div className="text-center p-4 bg-zinc-900/50 border border-zinc-800 rounded-sm">
-            <Users className="w-5 h-5 text-zinc-500 mx-auto mb-2" />
-            <p className="text-2xl font-light text-white">{totalVisitors}</p>
-            <p className="text-xs text-zinc-500 mt-1">Visitors</p>
+
+        {/* Visual Funnel */}
+        <div className="flex items-center justify-between gap-2 mb-8">
+          {/* Stage 1: Visitors */}
+          <div className="flex-1 text-center">
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-sm p-4">
+              <Users className="w-5 h-5 text-zinc-500 mx-auto mb-2" />
+              <p className="text-2xl font-light text-white">{formatNumber(totalVisitors)}</p>
+              <p className="text-xs text-zinc-500 mt-1">Visitors</p>
+            </div>
+            {totalVisitors > 0 && productViews > 0 && (
+              <p className="text-xs text-zinc-600 mt-2">
+                {((productViews / totalVisitors) * 100).toFixed(1)}%
+              </p>
+            )}
           </div>
-          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
-            <Eye className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-            <p className="text-2xl font-light text-white">{productViews}</p>
-            <p className="text-xs text-zinc-500 mt-1">Product Views</p>
+          <ArrowRight className="w-4 h-4 text-zinc-700 flex-shrink-0" />
+
+          {/* Stage 2: Product Views */}
+          <div className="flex-1 text-center">
+            <div className="bg-slate-900/30 border border-slate-800/50 rounded-sm p-4">
+              <Eye className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+              <p className="text-2xl font-light text-white">{formatNumber(productViews)}</p>
+              <p className="text-xs text-zinc-500 mt-1">Product Views</p>
+            </div>
+            {productViews > 0 && addToCarts > 0 && (
+              <p className="text-xs text-zinc-600 mt-2">
+                {((addToCarts / productViews) * 100).toFixed(1)}%
+              </p>
+            )}
           </div>
-          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
-            <ShoppingCart className="w-5 h-5 text-slate-400 mx-auto mb-2" />
-            <p className="text-2xl font-light text-white">{addToCarts}</p>
-            <p className="text-xs text-zinc-500 mt-1">Add to Cart</p>
+          <ArrowRight className="w-4 h-4 text-zinc-700 flex-shrink-0" />
+
+          {/* Stage 3: Add to Cart */}
+          <div className="flex-1 text-center">
+            <div className="bg-slate-900/30 border border-slate-800/50 rounded-sm p-4">
+              <ShoppingCart className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+              <p className="text-2xl font-light text-white">{formatNumber(addToCarts)}</p>
+              <p className="text-xs text-zinc-500 mt-1">Add to Cart</p>
+            </div>
+            {addToCarts > 0 && totalCheckoutAttempts > 0 && (
+              <p className="text-xs text-zinc-600 mt-2">
+                {((totalCheckoutAttempts / addToCarts) * 100).toFixed(1)}%
+              </p>
+            )}
           </div>
-          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
-            <DollarSign className="w-5 h-5 text-slate-300 mx-auto mb-2" />
-            <p className="text-2xl font-light text-slate-200">{purchases.length}</p>
-            <p className="text-xs text-zinc-500 mt-1">Purchases</p>
+          <ArrowRight className="w-4 h-4 text-zinc-700 flex-shrink-0" />
+
+          {/* Stage 4: Checkout Attempts */}
+          <div className="flex-1 text-center">
+            <div className="bg-slate-900/30 border border-slate-800/50 rounded-sm p-4">
+              <CreditCard className="w-5 h-5 text-slate-400 mx-auto mb-2" />
+              <p className="text-2xl font-light text-white">{formatNumber(totalCheckoutAttempts)}</p>
+              <p className="text-xs text-zinc-500 mt-1">Checkout Attempts</p>
+            </div>
+            {totalCheckoutAttempts > 0 && (
+              <p className="text-xs text-zinc-600 mt-2">
+                {checkoutSuccessRate.toFixed(1)}% success
+              </p>
+            )}
           </div>
-          <div className="text-center p-4 bg-slate-800/30 border border-slate-700/50 rounded-sm">
-            <TrendingUp className="w-5 h-5 text-slate-300 mx-auto mb-2" />
-            <p className="text-2xl font-light text-slate-200">{formatCurrency(totalRevenue)}</p>
-            <p className="text-xs text-zinc-500 mt-1">Revenue</p>
+          <ArrowRight className="w-4 h-4 text-zinc-700 flex-shrink-0" />
+
+          {/* Stage 5: Successful Purchases */}
+          <div className="flex-1 text-center">
+            <div className="bg-green-900/20 border border-green-800/50 rounded-sm p-4">
+              <CheckCircle className="w-5 h-5 text-green-400 mx-auto mb-2" />
+              <p className="text-2xl font-light text-green-300">{formatNumber(successfulCheckouts)}</p>
+              <p className="text-xs text-zinc-500 mt-1">Completed</p>
+            </div>
           </div>
         </div>
+
+        {/* Summary Stats */}
+        <div className="grid grid-cols-4 gap-4 pt-4 border-t border-zinc-800/50">
+          <div className="text-center p-3 bg-zinc-900/30 rounded-sm">
+            <p className="text-lg font-light text-white">{formatCurrency(totalRevenue)}</p>
+            <p className="text-xs text-zinc-500">Total Revenue</p>
+          </div>
+          <div className="text-center p-3 bg-zinc-900/30 rounded-sm">
+            <p className="text-lg font-light text-white">
+              {totalVisitors > 0 ? ((successfulCheckouts / totalVisitors) * 100).toFixed(2) : '0'}%
+            </p>
+            <p className="text-xs text-zinc-500">Overall Conversion</p>
+          </div>
+          <div className="text-center p-3 bg-red-900/20 rounded-sm">
+            <p className="text-lg font-light text-red-300">{failedCheckouts}</p>
+            <p className="text-xs text-zinc-500">Failed Checkouts</p>
+          </div>
+          <div className="text-center p-3 bg-red-900/20 rounded-sm">
+            <p className="text-lg font-light text-red-300">{formatCurrency(failedCheckoutRevenue)}</p>
+            <p className="text-xs text-zinc-500">Lost Revenue</p>
+          </div>
+        </div>
+
+        {/* Failed Checkout Breakdown (if any) */}
+        {failedCheckouts > 0 && (
+          <div className="mt-6 pt-4 border-t border-zinc-800/50">
+            <h4 className="text-xs text-zinc-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <XCircle className="w-3 h-3 text-red-400" />
+              Recent Failed Checkouts
+            </h4>
+            <div className="space-y-2 max-h-32 overflow-y-auto">
+              {checkoutAttempts
+                .filter(c => c.status === 'declined' || c.status === 'error')
+                .slice(0, 5)
+                .map((attempt) => (
+                  <div
+                    key={attempt.id}
+                    className="flex items-center justify-between py-2 px-3 bg-red-900/10 border border-red-900/30 rounded-sm text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`px-2 py-0.5 text-xs rounded ${
+                        attempt.status === 'declined' ? 'bg-red-900/50 text-red-300' : 'bg-orange-900/50 text-orange-300'
+                      }`}>
+                        {attempt.status}
+                      </span>
+                      <span className="text-zinc-400 truncate max-w-[200px]">
+                        {attempt.customer_error_message || attempt.processor_error_message || 'Payment failed'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-red-300">${(attempt.total_amount || 0).toFixed(2)}</span>
+                      <span className="text-xs text-zinc-600">
+                        {new Date(attempt.created_at).toLocaleTimeString()}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

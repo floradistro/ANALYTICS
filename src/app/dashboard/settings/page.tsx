@@ -34,6 +34,7 @@ import {
   Terminal,
   Settings2,
   Database,
+  Bell,
 } from 'lucide-react'
 import { CogsBackfill } from '@/components/admin/CogsBackfill'
 // Tax rate structure for multiple taxes per location
@@ -1644,6 +1645,10 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
     enable_welcome_emails: true,
     enable_marketing: false,
     require_double_opt_in: false,
+    // Alert settings
+    slack_webhook_url: '',
+    enable_failed_checkout_alerts: true,
+    failed_checkout_alert_email: '',
   })
 
   // Template state - use hardcoded list since templates live in edge function
@@ -1669,6 +1674,10 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
         enable_welcome_emails: settings.enable_welcome_emails ?? true,
         enable_marketing: settings.enable_marketing ?? false,
         require_double_opt_in: settings.require_double_opt_in ?? false,
+        // Alert settings
+        slack_webhook_url: settings.slack_webhook_url || '',
+        enable_failed_checkout_alerts: settings.enable_failed_checkout_alerts ?? true,
+        failed_checkout_alert_email: settings.failed_checkout_alert_email || '',
       })
     }
   }, [settings])
@@ -1764,6 +1773,58 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
               <ToggleRow label="Marketing Emails" description="Send promotional and marketing campaigns" checked={formData.enable_marketing} onChange={(v) => setFormData({ ...formData, enable_marketing: v })} disabled={!isEditing} />
               {formData.enable_marketing && (
                 <ToggleRow label="Require Double Opt-In" description="Customers must confirm subscription" checked={formData.require_double_opt_in} onChange={(v) => setFormData({ ...formData, require_double_opt_in: v })} disabled={!isEditing} />
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader icon={Bell} title="Alerts & Notifications" />
+            <div className="border-t border-zinc-900">
+              <div className="divide-y divide-zinc-900">
+                <ToggleRow
+                  label="Failed Checkout Alerts"
+                  description="Get notified when a checkout fails (payment declined, error, etc.)"
+                  checked={formData.enable_failed_checkout_alerts}
+                  onChange={(v) => setFormData({ ...formData, enable_failed_checkout_alerts: v })}
+                  disabled={!isEditing}
+                />
+              </div>
+              {formData.enable_failed_checkout_alerts && (
+                <div className="p-6 space-y-4 border-t border-zinc-900">
+                  {isEditing ? (
+                    <>
+                      <FormField label="Slack Webhook URL" hint="Receive alerts in a Slack channel">
+                        <input
+                          type="url"
+                          value={formData.slack_webhook_url}
+                          onChange={(e) => setFormData({ ...formData, slack_webhook_url: e.target.value })}
+                          className="input-field"
+                          placeholder="https://hooks.slack.com/services/..."
+                        />
+                      </FormField>
+                      <FormField label="Alert Email Override" hint="Send alerts to a different email (leave blank to use vendor email)">
+                        <input
+                          type="email"
+                          value={formData.failed_checkout_alert_email}
+                          onChange={(e) => setFormData({ ...formData, failed_checkout_alert_email: e.target.value })}
+                          className="input-field"
+                          placeholder="alerts@yourstore.com"
+                        />
+                      </FormField>
+                    </>
+                  ) : (
+                    <div className="space-y-3">
+                      <InfoRow
+                        label="Slack Webhook"
+                        value={formData.slack_webhook_url ? '••••••••' + formData.slack_webhook_url.slice(-20) : 'Not configured'}
+                      />
+                      <InfoRow
+                        label="Alert Email"
+                        value={formData.failed_checkout_alert_email || 'Using default vendor email'}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </Card>

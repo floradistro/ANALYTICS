@@ -328,6 +328,7 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
         p_tax_amount: 0,
         p_shipping_cost: 0,
         p_idempotency_key: idempotencyKey,
+        p_created_by_user_id: userId || null,
       })
 
       if (rpcError) throw rpcError

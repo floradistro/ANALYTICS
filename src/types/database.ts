@@ -15636,6 +15636,10 @@ export interface VendorEmailSettings {
   // Custom content
   signature_html: string | null
   unsubscribe_footer_html: string | null
+  // Alert settings
+  slack_webhook_url: string | null
+  enable_failed_checkout_alerts: boolean
+  failed_checkout_alert_email: string | null
   created_at: string
   updated_at: string
 }

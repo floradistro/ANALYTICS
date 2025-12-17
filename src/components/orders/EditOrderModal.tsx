@@ -101,6 +101,13 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
   const [products, setProducts] = useState<any[]>([])
   const [showAddProduct, setShowAddProduct] = useState(false)
   const [productSearch, setProductSearch] = useState('')
+  const [checkoutAttempt, setCheckoutAttempt] = useState<any>(null)
+  const [visitorSession, setVisitorSession] = useState<any>(null)
+  const [pageViews, setPageViews] = useState<any[]>([])
+  const [visitorEvents, setVisitorEvents] = useState<any[]>([])
+  const [orderNotes, setOrderNotes] = useState<any[]>([])
+  const [newNote, setNewNote] = useState('')
+  const [addingNote, setAddingNote] = useState(false)
 
   // Staff attribution - map of user IDs to emails
   const [staffEmails, setStaffEmails] = useState<Record<string, string>>({})
@@ -236,6 +243,68 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
           .limit(100)
 
         setProducts(productsData || [])
+
+        // Fetch checkout attempt for this order (if exists)
+        const { data: checkoutData } = await supabase
+          .from('checkout_attempts')
+          .select('*')
+          .eq('order_id', orderId)
+          .maybeSingle()
+
+        setCheckoutAttempt(checkoutData)
+
+        // Fetch order notes
+        const { data: notesData } = await supabase
+          .from('order_notes')
+          .select('*')
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: false })
+
+        setOrderNotes(notesData || [])
+
+        // Fetch visitor analytics if we have a visitor_id or session_id
+        const visitorId = orderData.visitor_id || checkoutData?.visitor_id
+        const sessionId = orderData.session_id || checkoutData?.session_id
+
+        if (visitorId || sessionId) {
+          // Fetch visitor session info
+          if (sessionId) {
+            const { data: sessionData } = await supabase
+              .from('website_visitors')
+              .select('*')
+              .eq('vendor_id', orderData.vendor_id)
+              .eq('session_id', sessionId)
+              .maybeSingle()
+
+            setVisitorSession(sessionData)
+          }
+
+          // Fetch page views for this visitor
+          if (visitorId) {
+            const { data: pageViewsData } = await supabase
+              .from('page_views')
+              .select('*')
+              .eq('vendor_id', orderData.vendor_id)
+              .eq('visitor_id', visitorId)
+              .order('created_at', { ascending: false })
+              .limit(50)
+
+            setPageViews(pageViewsData || [])
+          }
+
+          // Fetch analytics events for this visitor
+          if (visitorId) {
+            const { data: eventsData } = await supabase
+              .from('analytics_events')
+              .select('*')
+              .eq('vendor_id', orderData.vendor_id)
+              .eq('visitor_id', visitorId)
+              .order('timestamp', { ascending: false })
+              .limit(100)
+
+            setVisitorEvents(eventsData || [])
+          }
+        }
 
         setShippingName(orderData.shipping_name || '')
         setShippingAddress1(orderData.shipping_address_line1 || '')
@@ -519,6 +588,56 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
     })
     setRefundAmount('')
     setRefundReason('')
+  }
+
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !orderId) return
+
+    setAddingNote(true)
+    try {
+      const { data, error } = await supabase
+        .from('order_notes')
+        .insert({
+          order_id: orderId,
+          note: newNote.trim(),
+          note_type: 'internal',
+          is_customer_visible: false,
+          created_by: user?.id,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setOrderNotes(prev => [data, ...prev])
+      setNewNote('')
+    } catch (err) {
+      console.error('Failed to add note:', err)
+      alert('Failed to add note')
+    } finally {
+      setAddingNote(false)
+    }
+  }
+
+  // Helper to get event icon and color
+  const getEventStyle = (eventName: string) => {
+    const styles: Record<string, { color: string; label: string }> = {
+      'page_view': { color: 'text-zinc-400', label: 'Viewed Page' },
+      'view_product': { color: 'text-blue-400', label: 'Viewed Product' },
+      'add_to_cart': { color: 'text-emerald-400', label: 'Added to Cart' },
+      'remove_from_cart': { color: 'text-amber-400', label: 'Removed from Cart' },
+      'begin_checkout': { color: 'text-purple-400', label: 'Started Checkout' },
+      'checkout_started': { color: 'text-purple-400', label: 'Checkout Started' },
+      'checkout_submission_attempt': { color: 'text-orange-400', label: 'Submitted Checkout' },
+      'checkout_success': { color: 'text-emerald-400', label: 'Checkout Success' },
+      'checkout_validation_error': { color: 'text-red-400', label: 'Validation Error' },
+      'checkout_api_error': { color: 'text-red-400', label: 'Checkout Error' },
+      'purchase': { color: 'text-emerald-400', label: 'Purchase' },
+      'search': { color: 'text-cyan-400', label: 'Search' },
+      'scroll_depth': { color: 'text-zinc-500', label: 'Scrolled' },
+      'time_on_page': { color: 'text-zinc-500', label: 'Time on Page' },
+    }
+    return styles[eventName] || { color: 'text-zinc-400', label: eventName }
   }
 
   if (!isOpen) return null
@@ -814,6 +933,474 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                           </div>
                         </div>
                       )}
+
+                    </div>
+                  </div>
+
+                  {/* Checkout Analytics - Full Width - Only for e-commerce orders */}
+                  {(checkoutAttempt || order?.visitor_id) && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
+                        <TrendingUp className="w-4 h-4" />
+                        Checkout Analytics
+                      </h3>
+                      <div className="bg-zinc-900/30 border border-zinc-800 overflow-hidden">
+                        {/* Summary Row */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-zinc-800">
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Status</p>
+                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                              checkoutAttempt?.status === 'completed' ? 'text-emerald-400 bg-emerald-400/10' :
+                              checkoutAttempt?.status === 'error' ? 'text-red-400 bg-red-400/10' :
+                              checkoutAttempt?.status === 'declined' ? 'text-amber-400 bg-amber-400/10' :
+                              checkoutAttempt?.status === 'held_for_review' ? 'text-orange-400 bg-orange-400/10' :
+                              'text-zinc-400 bg-zinc-400/10'
+                            }`}>
+                              {checkoutAttempt?.status || 'N/A'}
+                            </span>
+                          </div>
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Payment Method</p>
+                            <p className="text-sm text-white capitalize font-medium">{checkoutAttempt?.payment_method?.replace('_', ' ') || 'N/A'}</p>
+                          </div>
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Processor</p>
+                            <p className="text-sm text-white capitalize font-medium">{checkoutAttempt?.payment_processor || 'N/A'}</p>
+                          </div>
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Source</p>
+                            <p className="text-sm text-white capitalize font-medium">{checkoutAttempt?.source || 'N/A'}</p>
+                          </div>
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Processing Time</p>
+                            <p className="text-sm text-white font-medium">
+                              {checkoutAttempt?.created_at && checkoutAttempt?.processed_at
+                                ? `${((new Date(checkoutAttempt.processed_at).getTime() - new Date(checkoutAttempt.created_at).getTime()) / 1000).toFixed(1)}s`
+                                : checkoutAttempt?.created_at ? 'Pending' : 'N/A'}
+                            </p>
+                          </div>
+                          <div className="p-4 bg-zinc-900/80">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1">Total</p>
+                            <p className="text-sm text-white font-bold tabular-nums">${checkoutAttempt?.total_amount?.toFixed(2) || '0.00'}</p>
+                          </div>
+                        </div>
+
+                        {/* Amount Breakdown */}
+                        {checkoutAttempt && (
+                          <div className="grid grid-cols-4 gap-px bg-zinc-800 border-t border-zinc-800">
+                            <div className="p-3 bg-zinc-900/60">
+                              <p className="text-[10px] text-zinc-500 uppercase">Subtotal</p>
+                              <p className="text-sm text-white tabular-nums">${checkoutAttempt.subtotal?.toFixed(2) || '0.00'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/60">
+                              <p className="text-[10px] text-zinc-500 uppercase">Tax</p>
+                              <p className="text-sm text-white tabular-nums">${checkoutAttempt.tax_amount?.toFixed(2) || '0.00'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/60">
+                              <p className="text-[10px] text-zinc-500 uppercase">Shipping</p>
+                              <p className="text-sm text-white tabular-nums">${checkoutAttempt.shipping_cost?.toFixed(2) || '0.00'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/60">
+                              <p className="text-[10px] text-zinc-500 uppercase">Discount</p>
+                              <p className="text-sm text-emerald-400 tabular-nums">-${checkoutAttempt.discount_amount?.toFixed(2) || '0.00'}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Details Section */}
+                        <div className="p-5 space-y-4">
+                          {/* Error Message - Full Width - Show First if exists */}
+                          {checkoutAttempt?.processor_error_message && (
+                            <div className="mb-4">
+                              <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider mb-2">Payment Error</p>
+                              <div className="p-3 bg-red-500/10 border border-red-500/20 rounded">
+                                <p className="text-sm text-red-400 font-mono">{checkoutAttempt.processor_error_message}</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Customer & Device Info */}
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {/* Customer from Checkout */}
+                            {checkoutAttempt && (checkoutAttempt.customer_email || checkoutAttempt.customer_name || checkoutAttempt.customer_phone) && (
+                              <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Checkout Customer</p>
+                                <div className="space-y-1.5">
+                                  {checkoutAttempt.customer_name && (
+                                    <p className="text-sm text-white">{checkoutAttempt.customer_name}</p>
+                                  )}
+                                  {checkoutAttempt.customer_email && (
+                                    <p className="text-xs text-zinc-400 flex items-center gap-1.5">
+                                      <Mail className="w-3 h-3" />
+                                      {checkoutAttempt.customer_email}
+                                    </p>
+                                  )}
+                                  {checkoutAttempt.customer_phone && (
+                                    <p className="text-xs text-zinc-400 flex items-center gap-1.5">
+                                      <Phone className="w-3 h-3" />
+                                      {checkoutAttempt.customer_phone}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Session Tracking */}
+                            <div>
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Session Tracking</p>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-zinc-500 w-16">Visitor</span>
+                                  <code className="text-[11px] text-white font-mono bg-zinc-800/50 px-1.5 py-0.5 truncate max-w-[180px]">{order?.visitor_id || checkoutAttempt?.visitor_id || 'Not tracked'}</code>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-zinc-500 w-16">Session</span>
+                                  <code className="text-[11px] text-white font-mono bg-zinc-800/50 px-1.5 py-0.5 truncate max-w-[180px]">{order?.session_id || checkoutAttempt?.session_id || 'Not tracked'}</code>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Device/IP Info */}
+                            {checkoutAttempt && (checkoutAttempt.ip_address || checkoutAttempt.user_agent) && (
+                              <div>
+                                <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Device Info</p>
+                                <div className="space-y-1.5">
+                                  {checkoutAttempt.ip_address && (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs text-zinc-500 w-16">IP</span>
+                                      <code className="text-[11px] text-white font-mono bg-zinc-800/50 px-1.5 py-0.5">{checkoutAttempt.ip_address}</code>
+                                    </div>
+                                  )}
+                                  {checkoutAttempt.user_agent && (
+                                    <div>
+                                      <span className="text-xs text-zinc-500">Browser/Device</span>
+                                      <p className="text-[11px] text-zinc-400 mt-0.5 line-clamp-2">{checkoutAttempt.user_agent}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Transaction Details */}
+                          {checkoutAttempt && (checkoutAttempt.processor_transaction_id || checkoutAttempt.processor_auth_code || checkoutAttempt.processor_response_code) && (
+                            <div className="pt-4 border-t border-zinc-800">
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Transaction Details</p>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                {checkoutAttempt.processor_transaction_id && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-zinc-400">Trans ID:</span>
+                                    <code className="text-xs text-white font-mono bg-zinc-800/50 px-2 py-1">{checkoutAttempt.processor_transaction_id}</code>
+                                  </div>
+                                )}
+                                {checkoutAttempt.processor_auth_code && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-zinc-400">Auth Code:</span>
+                                    <code className="text-xs text-white font-mono bg-zinc-800/50 px-2 py-1">{checkoutAttempt.processor_auth_code}</code>
+                                  </div>
+                                )}
+                                {checkoutAttempt.processor_response_code && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs text-zinc-400">Response:</span>
+                                    <code className="text-xs text-white font-mono bg-zinc-800/50 px-2 py-1">{checkoutAttempt.processor_response_code}</code>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Timestamps */}
+                          <div className="pt-4 border-t border-zinc-800">
+                            <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Timeline</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                              <div>
+                                <span className="text-xs text-zinc-500">Created</span>
+                                <p className="text-sm text-white">{checkoutAttempt?.created_at ? format(new Date(checkoutAttempt.created_at), 'MMM d, h:mm:ss a') : 'N/A'}</p>
+                              </div>
+                              <div>
+                                <span className="text-xs text-zinc-500">Processed</span>
+                                <p className="text-sm text-white">{checkoutAttempt?.processed_at ? format(new Date(checkoutAttempt.processed_at), 'MMM d, h:mm:ss a') : 'Pending'}</p>
+                              </div>
+                              <div>
+                                <span className="text-xs text-zinc-500">Updated</span>
+                                <p className="text-sm text-white">{checkoutAttempt?.updated_at ? format(new Date(checkoutAttempt.updated_at), 'MMM d, h:mm:ss a') : 'N/A'}</p>
+                              </div>
+                              <div>
+                                <span className="text-xs text-zinc-500">Order #</span>
+                                <p className="text-sm text-white font-mono">{checkoutAttempt?.order_number || 'N/A'}</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Addresses - Side by Side */}
+                          {checkoutAttempt && (
+                            (checkoutAttempt.shipping_address && Object.keys(checkoutAttempt.shipping_address).length > 0) ||
+                            (checkoutAttempt.billing_address && Object.keys(checkoutAttempt.billing_address).length > 0)
+                          ) && (
+                            <div className="pt-4 border-t border-zinc-800">
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {/* Shipping Address */}
+                                {checkoutAttempt.shipping_address && Object.keys(checkoutAttempt.shipping_address).length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Shipping Address</p>
+                                    <div className="p-3 bg-zinc-800/30 rounded space-y-1">
+                                      <p className="text-sm text-white">{checkoutAttempt.shipping_address.name || '-'}</p>
+                                      <p className="text-sm text-zinc-400">{checkoutAttempt.shipping_address.address || '-'}</p>
+                                      {checkoutAttempt.shipping_address.address2 && (
+                                        <p className="text-sm text-zinc-400">{checkoutAttempt.shipping_address.address2}</p>
+                                      )}
+                                      <p className="text-sm text-zinc-400">
+                                        {checkoutAttempt.shipping_address.city || '-'}, {checkoutAttempt.shipping_address.state || '-'} {checkoutAttempt.shipping_address.zip || '-'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Billing Address */}
+                                {checkoutAttempt.billing_address && Object.keys(checkoutAttempt.billing_address).length > 0 && (
+                                  <div>
+                                    <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Billing Address</p>
+                                    <div className="p-3 bg-zinc-800/30 rounded space-y-1">
+                                      <p className="text-sm text-white">{checkoutAttempt.billing_address.name || '-'}</p>
+                                      <p className="text-sm text-zinc-400">{checkoutAttempt.billing_address.address || '-'}</p>
+                                      {checkoutAttempt.billing_address.address2 && (
+                                        <p className="text-sm text-zinc-400">{checkoutAttempt.billing_address.address2}</p>
+                                      )}
+                                      <p className="text-sm text-zinc-400">
+                                        {checkoutAttempt.billing_address.city || '-'}, {checkoutAttempt.billing_address.state || '-'} {checkoutAttempt.billing_address.zip || '-'}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Cart Items from Checkout */}
+                          {checkoutAttempt?.items && checkoutAttempt.items.length > 0 && (
+                            <div className="pt-4 border-t border-zinc-800">
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Checkout Cart ({checkoutAttempt.items.length} items)</p>
+                              <div className="bg-zinc-800/30 rounded overflow-hidden">
+                                <div className="divide-y divide-zinc-800/50">
+                                  {checkoutAttempt.items.map((item: any, idx: number) => (
+                                    <div key={idx} className="flex items-center justify-between text-sm p-3">
+                                      <div className="flex-1">
+                                        <span className="text-white">{item.productName || item.product_name || 'Unknown Item'}</span>
+                                        {item.sku && <span className="text-xs text-zinc-500 ml-2">SKU: {item.sku}</span>}
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="text-zinc-400 tabular-nums">{item.quantity} × ${(item.unitPrice || item.unit_price || 0).toFixed(2)}</span>
+                                        <span className="text-white font-medium ml-4 tabular-nums">${((item.quantity || 1) * (item.unitPrice || item.unit_price || 0)).toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Staff Review Section */}
+                          {checkoutAttempt && (checkoutAttempt.staff_reviewed || checkoutAttempt.staff_notes) && (
+                            <div className="pt-4 border-t border-zinc-800">
+                              <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">Staff Review</p>
+                              <div className="p-3 bg-zinc-800/30 rounded space-y-2">
+                                <div className="flex items-center gap-4">
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                    checkoutAttempt.staff_reviewed ? 'text-emerald-400 bg-emerald-400/10' : 'text-amber-400 bg-amber-400/10'
+                                  }`}>
+                                    {checkoutAttempt.staff_reviewed ? '✓ Reviewed' : 'Pending Review'}
+                                  </span>
+                                  {checkoutAttempt.staff_reviewed_at && (
+                                    <span className="text-xs text-zinc-500">
+                                      {format(new Date(checkoutAttempt.staff_reviewed_at), 'MMM d, h:mm a')}
+                                    </span>
+                                  )}
+                                </div>
+                                {checkoutAttempt.staff_notes && (
+                                  <p className="text-sm text-zinc-400">{checkoutAttempt.staff_notes}</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Visitor Journey - Full Width */}
+                  {(visitorSession || visitorEvents.length > 0 || pageViews.length > 0) && (
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
+                        <User className="w-4 h-4" />
+                        Visitor Journey
+                      </h3>
+                      <div className="bg-zinc-900/30 border border-zinc-800 overflow-hidden">
+                        {/* Visitor Session Summary */}
+                        {visitorSession && (
+                          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-px bg-zinc-800">
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">Device</p>
+                              <p className="text-sm text-white capitalize">{visitorSession.device_type || 'Unknown'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">Browser</p>
+                              <p className="text-sm text-white">{visitorSession.browser || 'Unknown'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">OS</p>
+                              <p className="text-sm text-white">{visitorSession.os || 'Unknown'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">Location</p>
+                              <p className="text-sm text-white">{visitorSession.city || 'Unknown'}{visitorSession.region ? `, ${visitorSession.region}` : ''}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">Source</p>
+                              <p className="text-sm text-white">{visitorSession.utm_source || visitorSession.channel || 'Direct'}</p>
+                            </div>
+                            <div className="p-3 bg-zinc-900/80">
+                              <p className="text-[10px] text-zinc-500 uppercase">Returning</p>
+                              <p className="text-sm text-white">{visitorSession.is_returning ? 'Yes' : 'No'}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* UTM & Referrer */}
+                        {visitorSession && (visitorSession.utm_campaign || visitorSession.referrer) && (
+                          <div className="p-4 border-t border-zinc-800 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {visitorSession.utm_campaign && (
+                              <div>
+                                <p className="text-[10px] text-zinc-500 uppercase mb-1">Campaign</p>
+                                <p className="text-sm text-white">{visitorSession.utm_campaign}</p>
+                                {visitorSession.utm_medium && <p className="text-xs text-zinc-500">Medium: {visitorSession.utm_medium}</p>}
+                                {visitorSession.utm_content && <p className="text-xs text-zinc-500">Content: {visitorSession.utm_content}</p>}
+                              </div>
+                            )}
+                            {visitorSession.referrer && (
+                              <div>
+                                <p className="text-[10px] text-zinc-500 uppercase mb-1">Referrer</p>
+                                <p className="text-sm text-white truncate">{visitorSession.referrer}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Activity Timeline */}
+                        <div className="p-4 border-t border-zinc-800">
+                          <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-3">Activity Timeline</p>
+                          <div className="space-y-1 max-h-[400px] overflow-y-auto">
+                            {/* Combine and sort page views and events */}
+                            {[
+                              ...pageViews.map(pv => ({
+                                type: 'page_view' as const,
+                                timestamp: pv.created_at,
+                                data: pv
+                              })),
+                              ...visitorEvents.map(ev => ({
+                                type: 'event' as const,
+                                timestamp: ev.timestamp,
+                                data: ev
+                              }))
+                            ]
+                              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                              .slice(0, 50)
+                              .map((item, idx) => {
+                                if (item.type === 'page_view') {
+                                  const pv = item.data
+                                  // Extract page name from URL
+                                  const url = new URL(pv.page_url || 'https://example.com')
+                                  const pageName = url.pathname === '/' ? 'Home' : url.pathname.split('/').filter(Boolean).join(' / ')
+                                  return (
+                                    <div key={`pv-${idx}`} className="flex items-center gap-3 py-2 border-b border-zinc-800/30 last:border-0">
+                                      <div className="w-2 h-2 rounded-full bg-zinc-600"></div>
+                                      <div className="flex-1 min-w-0">
+                                        <span className="text-sm text-zinc-400">Viewed</span>
+                                        <span className="text-sm text-white ml-1 font-medium">{pageName}</span>
+                                        {pv.time_on_page && <span className="text-xs text-zinc-500 ml-2">({pv.time_on_page}s)</span>}
+                                      </div>
+                                      <span className="text-xs text-zinc-600 whitespace-nowrap">{format(new Date(pv.created_at), 'h:mm:ss a')}</span>
+                                    </div>
+                                  )
+                                } else {
+                                  const ev = item.data
+                                  const style = getEventStyle(ev.event_name)
+                                  const props = ev.event_properties || {}
+                                  return (
+                                    <div key={`ev-${idx}`} className="flex items-center gap-3 py-2 border-b border-zinc-800/30 last:border-0">
+                                      <div className={`w-2 h-2 rounded-full ${style.color.replace('text-', 'bg-')}`}></div>
+                                      <div className="flex-1 min-w-0">
+                                        <span className={`text-sm font-medium ${style.color}`}>{style.label}</span>
+                                        {props.productName && <span className="text-sm text-white ml-1">{props.productName}</span>}
+                                        {props.query && <span className="text-sm text-white ml-1">"{props.query}"</span>}
+                                        {ev.revenue && <span className="text-sm text-emerald-400 ml-2">${ev.revenue}</span>}
+                                        {props.quantity && <span className="text-xs text-zinc-500 ml-2">qty: {props.quantity}</span>}
+                                      </div>
+                                      <span className="text-xs text-zinc-600 whitespace-nowrap">{format(new Date(ev.timestamp), 'h:mm:ss a')}</span>
+                                    </div>
+                                  )
+                                }
+                              })}
+                            {pageViews.length === 0 && visitorEvents.length === 0 && (
+                              <p className="text-sm text-zinc-500 py-4 text-center">No activity data available</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Order Notes */}
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
+                      <FileText className="w-4 h-4" />
+                      Internal Notes ({orderNotes.length})
+                    </h3>
+                    <div className="bg-zinc-900/30 border border-zinc-800 overflow-hidden">
+                      {/* Add Note Input */}
+                      <div className="p-4 border-b border-zinc-800">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newNote}
+                            onChange={(e) => setNewNote(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddNote()}
+                            placeholder="Add a note..."
+                            className="flex-1 px-3 py-2 bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-600 text-sm"
+                          />
+                          <button
+                            onClick={handleAddNote}
+                            disabled={!newNote.trim() || addingNote}
+                            className="px-4 py-2 bg-white text-black text-sm font-medium hover:bg-zinc-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            {addingNote ? 'Adding...' : 'Add'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Notes List */}
+                      <div className="divide-y divide-zinc-800/50 max-h-[300px] overflow-y-auto">
+                        {orderNotes.length === 0 ? (
+                          <div className="p-4 text-center text-sm text-zinc-500">No notes yet</div>
+                        ) : (
+                          orderNotes.map((note) => (
+                            <div key={note.id} className="p-4">
+                              <div className="flex items-start justify-between gap-4">
+                                <p className="text-sm text-white flex-1">{note.note}</p>
+                                <span className={`inline-flex px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                                  note.note_type === 'system' ? 'text-blue-400 bg-blue-400/10' :
+                                  note.note_type === 'customer' ? 'text-amber-400 bg-amber-400/10' :
+                                  'text-zinc-400 bg-zinc-400/10'
+                                }`}>
+                                  {note.note_type}
+                                </span>
+                              </div>
+                              <p className="text-xs text-zinc-600 mt-2">
+                                {format(new Date(note.created_at), 'MMM d, yyyy h:mm a')}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
                     </div>
                   </div>
 

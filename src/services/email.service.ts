@@ -49,6 +49,10 @@ export interface VendorEmailSettings {
   // Custom content
   signature_html?: string
   unsubscribe_footer_html?: string
+  // Alert settings
+  slack_webhook_url?: string
+  enable_failed_checkout_alerts?: boolean
+  failed_checkout_alert_email?: string
   created_at?: string
   updated_at?: string
 }

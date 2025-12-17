@@ -22,9 +22,13 @@ import {
   User,
   Package,
   MapPin,
+  CreditCard,
+  RefreshCw,
+  Mail,
+  Phone,
 } from 'lucide-react'
 
-type OperationsTab = 'overview' | 'audits' | 'cash' | 'compliance'
+type OperationsTab = 'overview' | 'audits' | 'cash' | 'compliance' | 'checkouts'
 
 interface DailyAuditSummary {
   vendor_id: string
@@ -85,6 +89,42 @@ interface SafeTransaction {
   }
 }
 
+interface FailedCheckout {
+  id: string
+  order_id: string | null
+  status: 'pending' | 'approved' | 'declined' | 'error' | 'fraud_review'
+  total_amount: number
+  processor_error_message?: string
+  customer_error_message?: string
+  payment_method?: string
+  source?: string
+  visitor_id?: string
+  session_id?: string
+  error_context?: {
+    customer_name?: string
+    customer_email?: string
+    customer_phone?: string
+    shipping_address?: {
+      address?: string
+      city?: string
+      state?: string
+      zip?: string
+    }
+    cart_summary?: Array<{
+      name: string
+      qty: number
+      price: number
+    }>
+    technical_error?: string
+    request_id?: string
+  }
+  created_at: string
+  processed_at?: string
+  order?: {
+    order_number: string
+  }
+}
+
 export default function OperationsPage() {
   const { vendorId } = useAuthStore()
   const [activeTab, setActiveTab] = useState<OperationsTab>('overview')
@@ -96,6 +136,9 @@ export default function OperationsPage() {
   const [safeBalances, setSafeBalances] = useState<SafeBalance[]>([])
   const [safeTransactions, setSafeTransactions] = useState<SafeTransaction[]>([])
   const [totalLocations, setTotalLocations] = useState(0)
+  const [failedCheckouts, setFailedCheckouts] = useState<FailedCheckout[]>([])
+  const [selectedCheckout, setSelectedCheckout] = useState<FailedCheckout | null>(null)
+  const [checkoutsLoading, setCheckoutsLoading] = useState(false)
 
   // Modal states
   const [selectedAudit, setSelectedAudit] = useState<DailyAuditSummary | null>(null)
@@ -108,8 +151,38 @@ export default function OperationsPage() {
   useEffect(() => {
     if (vendorId) {
       fetchOperationsData()
+      fetchFailedCheckouts()
     }
   }, [vendorId])
+
+  const fetchFailedCheckouts = async () => {
+    if (!vendorId) return
+    setCheckoutsLoading(true)
+
+    try {
+      // Fetch failed checkouts from last 30 days
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+      const { data, error } = await supabase
+        .from('checkout_attempts')
+        .select('*, order:orders!order_id(order_number)')
+        .eq('vendor_id', vendorId)
+        .in('status', ['declined', 'error'])
+        .gte('created_at', thirtyDaysAgo)
+        .order('created_at', { ascending: false })
+        .limit(100)
+
+      if (error) {
+        console.error('Failed to fetch failed checkouts:', error)
+      } else {
+        setFailedCheckouts(data || [])
+      }
+    } catch (err) {
+      console.error('Error fetching failed checkouts:', err)
+    } finally {
+      setCheckoutsLoading(false)
+    }
+  }
 
   const fetchOperationsData = async () => {
     if (!vendorId) return
@@ -155,7 +228,7 @@ export default function OperationsPage() {
         supabase
           .from('locations')
           .select('id')
-          .eq('vendor_id', vendorId)
+          .eq('vendor_id', vendorId),
       ])
 
       console.log('Operations data fetched:', {
@@ -334,6 +407,7 @@ export default function OperationsPage() {
     { id: 'overview' as const, label: 'Overview', icon: Building2 },
     { id: 'audits' as const, label: 'Daily Audits', icon: ClipboardCheck },
     { id: 'cash' as const, label: 'Cash Management', icon: DollarSign },
+    { id: 'checkouts' as const, label: `Failed Checkouts${failedCheckouts.length > 0 ? ` (${failedCheckouts.length})` : ''}`, icon: CreditCard },
     { id: 'compliance' as const, label: 'Compliance', icon: AlertTriangle },
   ]
 
@@ -1002,6 +1076,276 @@ export default function OperationsPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'checkouts' && (
+          <div className="space-y-6">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="p-4 bg-zinc-950 border border-zinc-800">
+                <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Failed Checkouts</div>
+                <div className="text-2xl font-bold text-red-400 tabular-nums">{failedCheckouts.length}</div>
+                <div className="text-xs text-zinc-600 mt-1">Last 30 days</div>
+              </div>
+              <div className="p-4 bg-zinc-950 border border-zinc-800">
+                <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Lost Revenue</div>
+                <div className="text-2xl font-bold text-red-400 tabular-nums">
+                  {formatCurrency(failedCheckouts.reduce((sum, c) => sum + (c.total_amount || 0), 0))}
+                </div>
+                <div className="text-xs text-zinc-600 mt-1">Potential sales</div>
+              </div>
+              <div className="p-4 bg-zinc-950 border border-zinc-800">
+                <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Declined</div>
+                <div className="text-2xl font-bold text-orange-400 tabular-nums">
+                  {failedCheckouts.filter(c => c.status === 'declined').length}
+                </div>
+                <div className="text-xs text-zinc-600 mt-1">Card declines</div>
+              </div>
+              <div className="p-4 bg-zinc-950 border border-zinc-800">
+                <div className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Errors</div>
+                <div className="text-2xl font-bold text-yellow-400 tabular-nums">
+                  {failedCheckouts.filter(c => c.status === 'error').length}
+                </div>
+                <div className="text-xs text-zinc-600 mt-1">System errors</div>
+              </div>
+            </div>
+
+            {/* Failed Checkouts Table */}
+            <div className="bg-zinc-950 border border-zinc-800 overflow-hidden">
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <h3 className="font-medium text-white">Failed Checkout Queue</h3>
+                <button
+                  onClick={fetchFailedCheckouts}
+                  disabled={checkoutsLoading}
+                  className="flex items-center gap-2 px-3 py-1.5 text-xs bg-zinc-900 border border-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                >
+                  <RefreshCw className={`w-3 h-3 ${checkoutsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </button>
+              </div>
+
+              {checkoutsLoading ? (
+                <div className="p-8 text-center text-zinc-500">Loading failed checkouts...</div>
+              ) : failedCheckouts.length === 0 ? (
+                <div className="p-8 text-center text-zinc-500">
+                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-500" />
+                  <p>No failed checkouts in the last 30 days</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-zinc-900/50 text-zinc-500 text-xs uppercase">
+                      <tr>
+                        <th className="px-4 py-3 text-left">Date/Time</th>
+                        <th className="px-4 py-3 text-left">Customer</th>
+                        <th className="px-4 py-3 text-left">Error</th>
+                        <th className="px-4 py-3 text-right">Amount</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="px-4 py-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-800">
+                      {failedCheckouts.map((checkout) => (
+                        <tr
+                          key={checkout.id}
+                          className="hover:bg-zinc-900/50 cursor-pointer"
+                          onClick={() => setSelectedCheckout(checkout)}
+                        >
+                          <td className="px-4 py-3">
+                            <div className="text-white">{format(new Date(checkout.created_at), 'MMM d, yyyy')}</div>
+                            <div className="text-xs text-zinc-500">{format(new Date(checkout.created_at), 'h:mm a')}</div>
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-white">
+                              {checkout.error_context?.customer_name || 'Unknown'}
+                            </div>
+                            {checkout.error_context?.customer_email && (
+                              <div className="text-xs text-zinc-500">{checkout.error_context.customer_email}</div>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <div className="text-red-400 max-w-[200px] truncate">
+                              {checkout.customer_error_message || checkout.processor_error_message || 'Payment failed'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <span className="text-white tabular-nums">
+                              {formatCurrency(checkout.total_amount || 0)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <span className={`inline-flex px-2 py-1 text-xs rounded ${
+                              checkout.status === 'declined'
+                                ? 'bg-red-900/50 text-red-300'
+                                : 'bg-orange-900/50 text-orange-300'
+                            }`}>
+                              {checkout.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setSelectedCheckout(checkout)
+                              }}
+                              className="text-zinc-400 hover:text-white"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Failed Checkout Detail Modal */}
+        {selectedCheckout && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-zinc-950 border border-zinc-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <div className="p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-950">
+                <div>
+                  <h2 className="font-medium text-white">Failed Checkout Details</h2>
+                  <p className="text-xs text-zinc-500">
+                    {format(new Date(selectedCheckout.created_at), 'MMMM d, yyyy \'at\' h:mm a')}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedCheckout(null)}
+                  className="p-1 text-zinc-500 hover:text-white"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-4 space-y-6">
+                {/* Status & Amount */}
+                <div className="flex items-center justify-between p-4 bg-red-900/20 border border-red-900/30 rounded">
+                  <div>
+                    <span className={`inline-flex px-2 py-1 text-xs rounded ${
+                      selectedCheckout.status === 'declined'
+                        ? 'bg-red-900/50 text-red-300'
+                        : 'bg-orange-900/50 text-orange-300'
+                    }`}>
+                      {selectedCheckout.status.toUpperCase()}
+                    </span>
+                    <p className="text-red-300 mt-2">
+                      {selectedCheckout.customer_error_message || selectedCheckout.processor_error_message || 'Payment failed'}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-white tabular-nums">
+                      {formatCurrency(selectedCheckout.total_amount || 0)}
+                    </p>
+                    <p className="text-xs text-zinc-500">Lost Revenue</p>
+                  </div>
+                </div>
+
+                {/* Customer Info */}
+                <div>
+                  <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Customer Information</h3>
+                  <div className="bg-zinc-900 border border-zinc-800 p-4 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <User className="w-4 h-4 text-zinc-500" />
+                      <span className="text-white">{selectedCheckout.error_context?.customer_name || 'Unknown'}</span>
+                    </div>
+                    {selectedCheckout.error_context?.customer_email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-4 h-4 text-zinc-500" />
+                        <a href={`mailto:${selectedCheckout.error_context.customer_email}`} className="text-blue-400 hover:underline">
+                          {selectedCheckout.error_context.customer_email}
+                        </a>
+                      </div>
+                    )}
+                    {selectedCheckout.error_context?.customer_phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 text-zinc-500" />
+                        <a href={`tel:${selectedCheckout.error_context.customer_phone}`} className="text-blue-400 hover:underline">
+                          {selectedCheckout.error_context.customer_phone}
+                        </a>
+                      </div>
+                    )}
+                    {selectedCheckout.error_context?.shipping_address && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <MapPin className="w-4 h-4 text-zinc-500" />
+                        <span className="text-zinc-300">
+                          {[
+                            selectedCheckout.error_context.shipping_address.address,
+                            selectedCheckout.error_context.shipping_address.city,
+                            selectedCheckout.error_context.shipping_address.state,
+                            selectedCheckout.error_context.shipping_address.zip
+                          ].filter(Boolean).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Cart Items */}
+                {selectedCheckout.error_context?.cart_summary && selectedCheckout.error_context.cart_summary.length > 0 && (
+                  <div>
+                    <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Cart Items</h3>
+                    <div className="bg-zinc-900 border border-zinc-800 divide-y divide-zinc-800">
+                      {selectedCheckout.error_context.cart_summary.map((item, idx) => (
+                        <div key={idx} className="p-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4 text-zinc-500" />
+                            <span className="text-white">{item.qty}x {item.name}</span>
+                          </div>
+                          <span className="text-zinc-400 tabular-nums">
+                            ${typeof item.price === 'number' ? item.price.toFixed(2) : item.price}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Technical Details */}
+                <div>
+                  <h3 className="text-xs text-zinc-500 uppercase tracking-wide mb-2">Technical Details</h3>
+                  <div className="bg-zinc-900 border border-zinc-800 p-4 space-y-2 text-sm">
+                    {selectedCheckout.payment_method && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Payment Method</span>
+                        <span className="text-zinc-300">{selectedCheckout.payment_method}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.source && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Source</span>
+                        <span className="text-zinc-300">{selectedCheckout.source}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.error_context?.request_id && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Request ID</span>
+                        <span className="text-zinc-400 font-mono text-xs">{selectedCheckout.error_context.request_id}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.visitor_id && (
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Visitor ID</span>
+                        <span className="text-zinc-400 font-mono text-xs">{selectedCheckout.visitor_id}</span>
+                      </div>
+                    )}
+                    {selectedCheckout.error_context?.technical_error && (
+                      <div className="mt-2 pt-2 border-t border-zinc-800">
+                        <span className="text-zinc-500 block mb-1">Technical Error</span>
+                        <code className="text-red-400 text-xs block bg-zinc-950 p-2 rounded overflow-x-auto">
+                          {selectedCheckout.error_context.technical_error}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
