@@ -142,9 +142,18 @@ export async function POST(request: NextRequest) {
                  request.headers.get('x-real-ip') ||
                  null
 
+      // Enhanced debug logging to diagnose ipinfo coverage issues
+      console.log('[Track API] IP Detection:', {
+        xForwardedFor: request.headers.get('x-forwarded-for'),
+        xRealIp: request.headers.get('x-real-ip'),
+        extractedIp: ip,
+        hasToken: !!ipinfoToken,
+        tokenLength: ipinfoToken?.length || 0
+      })
+
       if (ipinfoToken && ip && ip !== '127.0.0.1' && !ip.startsWith('192.168.')) {
         try {
-          console.log('[Track API] Fetching ipinfo for IP:', ip)
+          console.log('[Track API] ✓ Fetching ipinfo for IP:', ip)
           const ipinfoResponse = await fetch(`https://ipinfo.io/${ip}?token=${ipinfoToken}`, {
             headers: { 'Accept': 'application/json' }
           })
@@ -189,9 +198,18 @@ export async function POST(request: NextRequest) {
             }
           }
         } catch (err) {
-          console.error('[Track API] ipinfo.io error:', err)
+          console.error('[Track API] ✗ ipinfo.io error:', err)
           // Fall through to Vercel headers
         }
+      } else {
+        // Log why ipinfo was skipped
+        console.log('[Track API] ✗ Skipped ipinfo:', {
+          reason: !ipinfoToken ? 'NO_TOKEN' :
+                  !ip ? 'NO_IP' :
+                  ip === '127.0.0.1' ? 'LOCALHOST' :
+                  ip.startsWith('192.168.') ? 'PRIVATE_IP' : 'UNKNOWN',
+          ip: ip || 'null'
+        })
       }
 
       // Priority 3: Fallback to Vercel headers (datacenter IPs, less accurate)
