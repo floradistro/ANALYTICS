@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2 } from 'lucide-react'
+import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2, ListTodo } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
+import { CTAManager } from '@/components/qr/CTAManager'
 
 interface QRCodeData {
   id: string
@@ -42,6 +43,7 @@ export default function QRAnalyticsPage() {
   const [selectedQR, setSelectedQR] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [ctaManagerOpen, setCTAManagerOpen] = useState<{ id: string; name: string } | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -267,28 +269,40 @@ export default function QRAnalyticsPage() {
                   <div className="text-xs text-zinc-500">View combined analytics</div>
                 </button>
                 {qrCodes.map((qr) => (
-                  <button
-                    key={qr.id}
-                    onClick={() => setSelectedQR(qr.id)}
-                    className={`w-full text-left p-4 hover:bg-zinc-800 transition-colors ${
-                      selectedQR === qr.id ? 'bg-zinc-800' : ''
-                    }`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="text-sm text-white">{qr.name}</div>
-                      <span className="text-xs text-zinc-600 bg-zinc-950 px-2 py-1">
-                        {qr.type}
-                      </span>
-                    </div>
-                    <div className="text-xs text-zinc-500 mb-2 font-mono">{qr.code}</div>
-                    {qr.campaign_name && (
-                      <div className="text-xs text-blue-400 mb-2">{qr.campaign_name}</div>
-                    )}
-                    <div className="flex items-center gap-4 text-xs text-zinc-600">
-                      <span>{qr.total_scans || 0} scans</span>
-                      <span>{qr.unique_devices || 0} devices</span>
-                    </div>
-                  </button>
+                  <div key={qr.id} className="group relative">
+                    <button
+                      onClick={() => setSelectedQR(qr.id)}
+                      className={`w-full text-left p-4 hover:bg-zinc-800 transition-colors ${
+                        selectedQR === qr.id ? 'bg-zinc-800' : ''
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="text-sm text-white">{qr.name}</div>
+                        <span className="text-xs text-zinc-600 bg-zinc-950 px-2 py-1">
+                          {qr.type}
+                        </span>
+                      </div>
+                      <div className="text-xs text-zinc-500 mb-2 font-mono">{qr.code}</div>
+                      {qr.campaign_name && (
+                        <div className="text-xs text-blue-400 mb-2">{qr.campaign_name}</div>
+                      )}
+                      <div className="flex items-center gap-4 text-xs text-zinc-600">
+                        <span>{qr.total_scans || 0} scans</span>
+                        <span>{qr.unique_devices || 0} devices</span>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setCTAManagerOpen({ id: qr.id, name: qr.name })
+                      }}
+                      className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1"
+                      title="Manage CTAs"
+                    >
+                      <ListTodo className="w-3 h-3" />
+                      CTAs
+                    </button>
+                  </div>
                 ))}
               </>
             )}
@@ -501,6 +515,15 @@ export default function QRAnalyticsPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* CTA Manager Modal */}
+      {ctaManagerOpen && (
+        <CTAManager
+          qrCodeId={ctaManagerOpen.id}
+          qrCodeName={ctaManagerOpen.name}
+          onClose={() => setCTAManagerOpen(null)}
+        />
       )}
     </div>
   )
