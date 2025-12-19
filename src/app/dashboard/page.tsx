@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { DollarSign, ShoppingCart, Users, TrendingUp, Receipt, Tag, Clock, AlertTriangle } from 'lucide-react'
+import { DollarSign, ShoppingCart, Users, TrendingUp, Receipt, Tag, Clock } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { useOrdersStore, isPaidOrder } from '@/stores/orders.store'
@@ -21,18 +21,6 @@ interface TopProduct {
   totalSold: number
   revenue: number
 }
-
-interface FailedCheckout {
-  id: string
-  customer_email: string | null
-  customer_name: string | null
-  total_amount: number
-  status: string
-  error_message: string | null
-  source: string
-  created_at: string
-}
-
 
 export default function DashboardOverview() {
   const { vendorId } = useAuthStore()
@@ -58,7 +46,6 @@ export default function DashboardOverview() {
 
   // Additional state for data not in orders store
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
-  const [failedCheckouts, setFailedCheckouts] = useState<FailedCheckout[]>([])
   const [customerCount, setCustomerCount] = useState(0)
   const [customerGrowth, setCustomerGrowth] = useState(0)
   const [revenueGrowth, setRevenueGrowth] = useState(0)
@@ -284,34 +271,6 @@ export default function DashboardOverview() {
     }
   }, [vendorId, dateRange])
 
-  // Fetch failed checkouts for the feed
-  const fetchFailedCheckouts = useCallback(async () => {
-    if (!vendorId) return
-
-    const { start, end } = getDateRangeForQuery()
-
-    try {
-      const { data, error } = await supabase
-        .from('checkout_attempts')
-        .select('id, customer_email, customer_name, total_amount, status, error_message, source, created_at')
-        .eq('vendor_id', vendorId)
-        .in('status', ['declined', 'error'])
-        .gte('created_at', start)
-        .lte('created_at', end)
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      if (error) {
-        console.error('Failed to fetch failed checkouts:', error)
-        return
-      }
-
-      setFailedCheckouts(data || [])
-    } catch (err) {
-      console.error('Error fetching failed checkouts:', err)
-    }
-  }, [vendorId, dateRange])
-
   // Fetch top products (requires order_items join)
   const fetchTopProducts = useCallback(async () => {
     if (!vendorId) return
@@ -387,9 +346,8 @@ export default function DashboardOverview() {
       fetchAdditionalData()
       fetchTopProducts()
       fetchCheckoutAnalytics()
-      fetchFailedCheckouts()
     }
-  }, [vendorId, ordersLoading, fetchAdditionalData, fetchTopProducts, fetchCheckoutAnalytics, fetchFailedCheckouts])
+  }, [vendorId, ordersLoading, fetchAdditionalData, fetchTopProducts, fetchCheckoutAnalytics])
 
   // Compute derived values from centralized store
   const paidOrders = getPaidOrders()
@@ -589,84 +547,6 @@ export default function DashboardOverview() {
           </table>
         </div>
       </div>
-
-      {/* Failed Checkouts Feed */}
-      {failedCheckouts.length > 0 && (
-        <div className="bg-zinc-950 border border-red-900/30 p-4 lg:p-6">
-          <div className="flex items-center gap-2 mb-4 lg:mb-6">
-            <AlertTriangle className="w-4 h-4 text-red-400" />
-            <h3 className="text-xs lg:text-sm font-light text-white tracking-wide">
-              Failed Checkouts
-            </h3>
-            <span className="ml-auto text-[10px] lg:text-xs text-red-400 font-light">
-              {failedCheckouts.length} failed attempt{failedCheckouts.length !== 1 ? 's' : ''}
-            </span>
-          </div>
-          <div className="overflow-x-auto -mx-4 lg:mx-0">
-            <table className="w-full min-w-[600px]">
-              <thead className="border-b border-zinc-900">
-                <tr>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Customer
-                  </th>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Error
-                  </th>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Source
-                  </th>
-                  <th className="px-3 lg:px-4 py-2 lg:py-3 text-left text-[10px] lg:text-xs font-light text-zinc-500 uppercase tracking-wider">
-                    Time
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900">
-                {failedCheckouts.map((checkout) => (
-                  <tr key={checkout.id} className="hover:bg-red-900/10 transition-colors">
-                    <td className="px-3 lg:px-4 py-3 lg:py-4">
-                      <div className="text-xs lg:text-sm font-light text-white">
-                        {checkout.customer_name || 'Guest'}
-                      </div>
-                      {checkout.customer_email && (
-                        <div className="text-[10px] lg:text-xs text-zinc-500">
-                          {checkout.customer_email}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 lg:px-4 py-3 lg:py-4">
-                      <span className={`inline-flex px-1.5 lg:px-2 py-0.5 lg:py-1 text-[10px] lg:text-xs font-light ${
-                        checkout.status === 'declined'
-                          ? 'bg-red-900/30 text-red-300 border border-red-800/30'
-                          : 'bg-amber-900/30 text-amber-300 border border-amber-800/30'
-                      }`}>
-                        {checkout.status}
-                      </span>
-                    </td>
-                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-400 font-light max-w-[200px] truncate">
-                      {checkout.error_message || '—'}
-                    </td>
-                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-red-300 font-light">
-                      {formatCurrency(checkout.total_amount)}
-                    </td>
-                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light capitalize">
-                      {checkout.source?.replace('_', ' ') || 'web'}
-                    </td>
-                    <td className="px-3 lg:px-4 py-3 lg:py-4 text-xs lg:text-sm text-zinc-500 font-light whitespace-nowrap">
-                      {format(new Date(checkout.created_at), 'MMM d, h:mm a')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

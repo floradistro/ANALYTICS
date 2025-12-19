@@ -340,9 +340,13 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
       // Success
       onCreated()
       handleClose()
-    } catch (err) {
-      console.error('Failed to create PO:', err)
-      setError(err instanceof Error ? err.message : 'Failed to create purchase order')
+    } catch (err: any) {
+      // Handle Supabase errors which have a message property but aren't Error instances
+      const errorMessage = err?.message || err?.error_description ||
+        (typeof err === 'object' ? JSON.stringify(err) : String(err)) ||
+        'Failed to create purchase order'
+      console.error('Failed to create PO:', errorMessage, err)
+      setError(errorMessage)
     } finally {
       setSaving(false)
     }

@@ -14,9 +14,11 @@ import {
   ChevronLeft,
   ChevronRight,
   Pencil,
+  AlertTriangle,
 } from 'lucide-react'
 import { FilterBar } from '@/components/filters/FilterBar'
 import { EditOrderModal } from '@/components/orders/EditOrderModal'
+import { FailedCheckoutDetailModal } from '@/components/orders/FailedCheckoutDetailModal'
 
 interface Customer {
   id: string
@@ -29,8 +31,22 @@ interface OrderWithCustomer extends Order {
   customer?: Customer | null
 }
 
+interface FailedCheckout {
+  id: string
+  customer_email: string | null
+  customer_name: string | null
+  total_amount: number
+  status: string
+  processor_error_message: string | null
+  source: string
+  created_at: string
+  order_number?: string | null  // For failed orders
+  record_type: 'checkout_attempt' | 'failed_order'
+}
+
 type OrderStatus = 'all' | 'pending' | 'shipped' | 'delivered' | 'cancelled'
 type OrderType = 'all' | 'walk_in' | 'pickup' | 'delivery' | 'shipping'
+type ViewTab = 'orders' | 'failed'
 
 export default function OrdersPage() {
   const { vendorId } = useAuthStore()
@@ -46,6 +62,12 @@ export default function OrdersPage() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editOrderId, setEditOrderId] = useState<string | null>(null)
   const [updatedOrderIds, setUpdatedOrderIds] = useState<Set<string>>(new Set())
+  const [activeTab, setActiveTab] = useState<ViewTab>('orders')
+  const [failedCheckouts, setFailedCheckouts] = useState<FailedCheckout[]>([])
+  const [failedLoading, setFailedLoading] = useState(false)
+  const [failedDetailOpen, setFailedDetailOpen] = useState(false)
+  const [selectedFailedCheckout, setSelectedFailedCheckout] = useState<FailedCheckout | null>(null)
+  const [failedSourceFilter, setFailedSourceFilter] = useState<'all' | 'online' | 'pos'>('all')
   const pageSize = 20
 
   // Debounce search
@@ -164,6 +186,105 @@ export default function OrdersPage() {
       fetchOrders()
     }
   }, [vendorId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch, fetchOrders])
+
+  // Fetch failed checkouts - from both checkout_attempts (new) and orders (legacy)
+  const fetchFailedCheckouts = async () => {
+    if (!vendorId) return
+    setFailedLoading(true)
+
+    const { start, end } = getDateRangeForQuery()
+
+    try {
+      // 1. Fetch from checkout_attempts (new table - declined/error attempts)
+      const { data: checkoutAttempts, error: attemptsError } = await supabase
+        .from('checkout_attempts')
+        .select('id, customer_email, customer_name, total_amount, status, processor_error_message, source, created_at')
+        .eq('vendor_id', vendorId)
+        .in('status', ['declined', 'error'])
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: false })
+
+      if (attemptsError && attemptsError.message) {
+        console.error('Failed to fetch checkout attempts:', attemptsError.message)
+      }
+
+      // 2. Fetch from orders table (legacy - failed payment orders)
+      const { data: failedOrders, error: ordersError } = await supabase
+        .from('orders')
+        .select('id, shipping_name, total_amount, payment_status, order_number, payment_method, order_type, created_at, customers(email, first_name, last_name)')
+        .eq('vendor_id', vendorId)
+        .eq('payment_status', 'failed')
+        .gte('created_at', start)
+        .lte('created_at', end)
+        .order('created_at', { ascending: false })
+
+      if (ordersError && ordersError.message) {
+        console.error('Failed to fetch failed orders:', ordersError.message)
+      }
+
+      // Combine and normalize both sources
+      const normalizedAttempts: FailedCheckout[] = (checkoutAttempts || []).map(a => ({
+        id: a.id,
+        customer_email: a.customer_email,
+        customer_name: a.customer_name,
+        total_amount: a.total_amount,
+        status: a.status,
+        processor_error_message: a.processor_error_message,
+        source: a.source || 'web',
+        created_at: a.created_at,
+        order_number: null,
+        record_type: 'checkout_attempt' as const,
+      }))
+
+      const normalizedOrders: FailedCheckout[] = (failedOrders || []).map(o => {
+        // Determine source based on order_type: 'shipping' = online, 'walk_in'/'pickup'/'delivery' = in-store
+        const orderType = (o as any).order_type
+        const isOnlineOrder = orderType === 'shipping'
+        // Handle Supabase join result - can be array, object, or null
+        const rawCustomer = o.customers
+        const customer: { email: string | null; first_name: string | null; last_name: string | null } | null =
+          Array.isArray(rawCustomer) && rawCustomer.length > 0
+            ? rawCustomer[0]
+            : (rawCustomer && typeof rawCustomer === 'object' && !Array.isArray(rawCustomer) && Object.keys(rawCustomer).length > 0)
+              ? rawCustomer as { email: string | null; first_name: string | null; last_name: string | null }
+              : null
+        // Build customer name: prefer customer first/last, fallback to shipping_name
+        const customerName = customer?.first_name || customer?.last_name
+          ? [customer.first_name, customer.last_name].filter(Boolean).join(' ')
+          : o.shipping_name
+        return {
+          id: o.id,
+          customer_email: customer?.email || null,
+          customer_name: customerName || null,
+          total_amount: o.total_amount,
+          status: 'failed',
+          processor_error_message: null,
+          source: isOnlineOrder ? 'web' : (orderType || 'pos'),
+          created_at: o.created_at,
+          order_number: o.order_number,
+          record_type: 'failed_order' as const,
+        }
+      })
+
+      // Merge and sort by date descending
+      const combined = [...normalizedAttempts, ...normalizedOrders]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+      setFailedCheckouts(combined)
+    } catch (err) {
+      console.error('Error fetching failed checkouts:', err)
+    } finally {
+      setFailedLoading(false)
+    }
+  }
+
+  // Fetch failed checkouts on mount and when date changes
+  useEffect(() => {
+    if (vendorId) {
+      fetchFailedCheckouts()
+    }
+  }, [vendorId, dateRange])
 
   // Realtime subscription for instant updates (like POS)
   useEffect(() => {
@@ -318,18 +439,58 @@ export default function OrdersPage() {
             {totalCount > 0 ? `${totalCount.toLocaleString()} orders` : 'Manage orders'}
           </p>
         </div>
+        {activeTab === 'orders' && (
+          <button
+            onClick={exportOrders}
+            className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors text-sm self-start sm:self-auto"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </button>
+        )}
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-zinc-800">
         <button
-          onClick={exportOrders}
-          className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border border-zinc-800 text-zinc-300 hover:bg-zinc-800 hover:text-white transition-colors text-sm self-start sm:self-auto"
+          onClick={() => setActiveTab('orders')}
+          className={`px-4 py-2 text-sm font-medium transition-colors relative ${
+            activeTab === 'orders'
+              ? 'text-white'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
         >
-          <Download className="w-4 h-4" />
-          Export
+          Orders
+          {activeTab === 'orders' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white" />
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('failed')}
+          className={`px-4 py-2 text-sm font-medium transition-colors relative flex items-center gap-2 ${
+            activeTab === 'failed'
+              ? 'text-white'
+              : 'text-zinc-500 hover:text-zinc-300'
+          }`}
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+          Failed Checkouts
+          {failedCheckouts.length > 0 && (
+            <span className="px-1.5 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded-full">
+              {failedCheckouts.length}
+            </span>
+          )}
+          {activeTab === 'failed' && (
+            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white" />
+          )}
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="space-y-3">
-        <FilterBar showPaymentFilter={true} showOrderTypeFilter={false} />
+      {activeTab === 'orders' && (
+        <>
+          {/* Filters */}
+          <div className="space-y-3">
+            <FilterBar showPaymentFilter={true} showOrderTypeFilter={false} />
 
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="relative flex-1">
@@ -508,8 +669,170 @@ export default function OrdersPage() {
               </button>
             </div>
           </div>
-        )}
-      </div>
+          )}
+        </div>
+        </>
+      )}
+
+      {/* Failed Checkouts Tab */}
+      {activeTab === 'failed' && (
+        <div className="bg-zinc-950 border border-zinc-800">
+          {/* Source Filter */}
+          <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-4">
+            <span className="text-xs text-zinc-500">Filter:</span>
+            <div className="flex gap-1">
+              {(['all', 'online', 'pos'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setFailedSourceFilter(filter)}
+                  className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                    failedSourceFilter === filter
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                      : 'bg-zinc-800/50 text-zinc-400 border border-zinc-700/50 hover:bg-zinc-800'
+                  }`}
+                >
+                  {filter === 'all' ? 'All' : filter === 'online' ? 'Online' : 'In-Store'}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-zinc-600 ml-auto">
+              {(() => {
+                const isOnlineSource = (source: string | null) => {
+                  if (!source) return false
+                  const s = source.toLowerCase()
+                  return s === 'web' || s === 'ecommerce' || s === 'online' || s === 'storefront' || s === 'shipping' || s.includes('website')
+                }
+                const filtered = failedCheckouts.filter(c => {
+                  if (failedSourceFilter === 'all') return true
+                  const online = isOnlineSource(c.source)
+                  return failedSourceFilter === 'online' ? online : !online
+                })
+                return `${filtered.length} record${filtered.length !== 1 ? 's' : ''}`
+              })()}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[700px]">
+              <thead className="border-b border-zinc-800">
+                <tr>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Customer</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Error</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Amount</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Source</th>
+                  <th className="px-4 py-3 text-left text-[11px] font-medium text-zinc-500 uppercase tracking-wider">Time</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/50">
+                {failedLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-12 text-center text-zinc-500 text-sm">
+                      Loading...
+                    </td>
+                  </tr>
+                ) : (() => {
+                  // Helper to check if source indicates online/e-commerce
+                  const isOnlineSource = (source: string | null) => {
+                    if (!source) return false
+                    const s = source.toLowerCase()
+                    // Online sources: web, ecommerce, online, storefront, shipping
+                    // POS sources: pos, walk_in, pickup, delivery, card, cash, etc.
+                    return s === 'web' || s === 'ecommerce' || s === 'online' || s === 'storefront' || s === 'shipping' || s.includes('website')
+                  }
+
+                  const filtered = failedCheckouts.filter(c => {
+                    if (failedSourceFilter === 'all') return true
+                    const online = isOnlineSource(c.source)
+                    return failedSourceFilter === 'online' ? online : !online
+                  })
+                  if (filtered.length === 0) {
+                    return (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-12 text-center text-zinc-500 text-sm">
+                          No failed checkouts in this period
+                        </td>
+                      </tr>
+                    )
+                  }
+                  return filtered.map((checkout) => (
+                    <tr
+                      key={checkout.id}
+                      className="hover:bg-red-900/10 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setSelectedFailedCheckout(checkout)
+                        setFailedDetailOpen(true)
+                      }}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" />
+                          <div>
+                            <div className="text-sm text-white">
+                              {checkout.customer_name || 'Guest'}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {checkout.customer_email && (
+                                <span className="text-xs text-zinc-500">
+                                  {checkout.customer_email}
+                                </span>
+                              )}
+                              {checkout.order_number && (
+                                <span className="text-xs text-zinc-600">
+                                  #{checkout.order_number}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${
+                          checkout.status === 'declined'
+                            ? 'bg-red-500/10 text-red-400'
+                            : checkout.status === 'failed'
+                            ? 'bg-red-500/10 text-red-400'
+                            : 'bg-amber-500/10 text-amber-400'
+                        }`}>
+                          {checkout.status}
+                        </span>
+                        {checkout.record_type === 'failed_order' && (
+                          <span className="ml-1.5 inline-flex px-1.5 py-0.5 text-[10px] font-medium bg-zinc-800 text-zinc-500 rounded">
+                            order
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-zinc-400 max-w-[250px] truncate">
+                        {checkout.processor_error_message || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-red-300 tabular-nums">
+                        {formatCurrency(checkout.total_amount || 0)}
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {(() => {
+                          const s = checkout.source?.toLowerCase() || ''
+                          const online = s === 'web' || s === 'ecommerce' || s === 'online' || s === 'storefront' || s === 'shipping' || s.includes('website')
+                          return (
+                            <span className={`inline-flex px-2 py-0.5 text-[10px] font-medium rounded ${
+                              online
+                                ? 'bg-blue-500/20 text-blue-400'
+                                : 'bg-zinc-700/50 text-zinc-400'
+                            }`}>
+                              {online ? 'Online' : 'In-Store'}
+                            </span>
+                          )
+                        })()}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-zinc-500 whitespace-nowrap">
+                        {format(new Date(checkout.created_at), 'MMM d, h:mm a')}
+                      </td>
+                    </tr>
+                  ))
+                })()}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Edit Order Modal */}
       <EditOrderModal
@@ -520,6 +843,17 @@ export default function OrdersPage() {
           setEditOrderId(null)
         }}
         onSave={fetchOrders}
+      />
+
+      {/* Failed Checkout Detail Modal */}
+      <FailedCheckoutDetailModal
+        isOpen={failedDetailOpen}
+        onClose={() => {
+          setFailedDetailOpen(false)
+          setSelectedFailedCheckout(null)
+        }}
+        checkoutId={selectedFailedCheckout?.id || null}
+        recordType={selectedFailedCheckout?.record_type || 'checkout_attempt'}
       />
     </div>
   )

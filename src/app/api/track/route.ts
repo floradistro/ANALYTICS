@@ -86,6 +86,7 @@ export async function POST(request: NextRequest) {
       referrer,
       visitor_id,
       session_id,
+      fingerprint_id,
       // UTM parameters
       utm_source,
       utm_medium,
@@ -243,6 +244,7 @@ export async function POST(request: NextRequest) {
         vendor_id,
         session_id: sessionId,
         visitor_id,
+        fingerprint_id: fingerprint_id || null,
         latitude,
         longitude,
         city: city ? decodeURIComponent(city) : null,

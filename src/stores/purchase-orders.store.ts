@@ -383,11 +383,14 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
       await get().loadPurchaseOrderDetail(poId)
 
       return { success: true }
-    } catch (err) {
-      console.error('[PurchaseOrdersStore] Receive items error:', err)
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error_description ||
+        (typeof err === 'object' && Object.keys(err).length > 0 ? JSON.stringify(err) : null) ||
+        'Failed to receive items'
+      console.error('[PurchaseOrdersStore] Receive items error:', errorMessage, err)
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to receive items',
+        error: errorMessage,
       }
     }
   },
@@ -407,11 +410,14 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
       }))
 
       return { success: true }
-    } catch (err) {
-      console.error('[PurchaseOrdersStore] Delete error:', err)
+    } catch (err: any) {
+      const errorMessage = err?.message || err?.error_description ||
+        (typeof err === 'object' && Object.keys(err).length > 0 ? JSON.stringify(err) : null) ||
+        'Failed to delete purchase order'
+      console.error('[PurchaseOrdersStore] Delete error:', errorMessage, err)
       return {
         success: false,
-        error: err instanceof Error ? err.message : 'Failed to delete purchase order',
+        error: errorMessage,
       }
     }
   },
