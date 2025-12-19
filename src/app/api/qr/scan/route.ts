@@ -58,24 +58,57 @@ export async function POST(request: NextRequest) {
     if (qrError || !qrCode) {
       // Parse code type from prefix: P = product, O = order, L = location, C = campaign
       const codeType = code.charAt(0);
-      const codeId = code.substring(1); // The UUID portion
+      const shortId = code.substring(1).toUpperCase(); // The 8-char UUID prefix
 
       if (codeType === 'P' || codeType === 'O' || codeType === 'L') {
-        // Auto-create the QR code entry
         const typeMap: Record<string, string> = {
           'P': 'product',
           'O': 'order',
           'L': 'location'
         };
 
-        // Build destination URL based on type
+        // The shortId is first 8 chars of UUID (no dashes). We need to find the full UUID.
+        // Product IDs look like: 8e67f0b8-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        // We stored P8E67F0B8 so we need to find product where id starts with 8e67f0b8
+
+        let fullId: string | null = null;
+        let itemName = `${typeMap[codeType]} ${shortId}`;
         let destinationUrl = 'https://floradistro.com';
+        let coaUrl: string | null = null;
+
+        // Try to find the actual item in the main database
+        // Note: This queries the MAIN Supabase (same as storefront), not analytics
+        const mainSupabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+
         if (codeType === 'P') {
-          destinationUrl = `https://floradistro.com/products/${codeId}`;
+          // Find product by UUID prefix (case-insensitive)
+          const { data: product } = await mainSupabase
+            .from('products')
+            .select('id, name, coa_url')
+            .ilike('id', `${shortId.toLowerCase()}%`)
+            .single();
+
+          if (product) {
+            fullId = product.id;
+            itemName = product.name;
+            coaUrl = product.coa_url;
+            destinationUrl = coaUrl || `https://floradistro.com/products/${product.id}`;
+          }
         } else if (codeType === 'O') {
-          destinationUrl = `https://floradistro.com/orders/${codeId}`;
-        } else if (codeType === 'L') {
-          destinationUrl = `https://floradistro.com/locations/${codeId}`;
+          const { data: order } = await mainSupabase
+            .from('orders')
+            .select('id, order_number')
+            .ilike('id', `${shortId.toLowerCase()}%`)
+            .single();
+
+          if (order) {
+            fullId = order.id;
+            itemName = `Order #${order.order_number || order.id.substring(0, 8)}`;
+            destinationUrl = `https://floradistro.com/orders/${order.id}`;
+          }
         }
 
         const { data: newQrCode, error: createError } = await supabase
@@ -83,13 +116,13 @@ export async function POST(request: NextRequest) {
           .insert({
             vendor_id,
             code,
-            name: `${typeMap[codeType]} ${codeId}`,
+            name: itemName,
             type: typeMap[codeType],
             destination_url: destinationUrl,
             is_active: true,
-            product_id: codeType === 'P' ? codeId : null,
-            order_id: codeType === 'O' ? codeId : null,
-            location_id: codeType === 'L' ? codeId : null,
+            product_id: codeType === 'P' ? fullId : null,
+            order_id: codeType === 'O' ? fullId : null,
+            location_id: codeType === 'L' ? fullId : null,
             campaign_name: 'auto_created'
           })
           .select()
@@ -104,7 +137,7 @@ export async function POST(request: NextRequest) {
         }
 
         qrCode = newQrCode;
-        console.log(`Auto-created QR code: ${code} (${typeMap[codeType]})`);
+        console.log(`Auto-created QR code: ${code} -> ${fullId || 'unknown'} (${typeMap[codeType]})`);
       } else {
         // Unknown code format - can't auto-create
         return NextResponse.json(
@@ -210,6 +243,9 @@ export async function POST(request: NextRequest) {
         name: qrCode.name,
         type: qrCode.type,
         destination_url: qrCode.destination_url,
+        product_id: qrCode.product_id,
+        order_id: qrCode.order_id,
+        location_id: qrCode.location_id,
         landing_page_url: qrCode.landing_page_url,
         landing_page_title: qrCode.landing_page_title,
         landing_page_description: qrCode.landing_page_description,
