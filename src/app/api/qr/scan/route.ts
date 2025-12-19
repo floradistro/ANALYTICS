@@ -84,30 +84,51 @@ export async function POST(request: NextRequest) {
         );
 
         if (codeType === 'P') {
-          // Find product by UUID prefix (case-insensitive)
-          const { data: product } = await mainSupabase
+          // Find product by UUID prefix
+          // shortId is like "8E67F0B8", product id is like "8e67f0b8-xxxx-xxxx-xxxx-xxxx"
+          // We need to match the first 8 chars of the UUID (no dashes)
+          const searchPattern = shortId.toLowerCase();
+
+          // Fetch all products and find one that matches the prefix
+          // This is not ideal for large datasets but works for now
+          const { data: products, error: productError } = await mainSupabase
             .from('products')
             .select('id, name, coa_url')
-            .ilike('id', `${shortId.toLowerCase()}%`)
-            .single();
+            .limit(1000);
 
-          if (product) {
-            fullId = product.id;
-            itemName = product.name;
-            coaUrl = product.coa_url;
-            destinationUrl = coaUrl || `https://floradistro.com/products/${product.id}`;
+          console.log(`Product lookup - searching for ${searchPattern} in ${products?.length || 0} products`);
+
+          if (products) {
+            // Find product where id starts with the pattern (UUIDs have dashes, so we remove them)
+            const product = products.find(p =>
+              p.id.replace(/-/g, '').toLowerCase().startsWith(searchPattern)
+            );
+
+            if (product) {
+              console.log(`Found product: ${product.name} (${product.id})`);
+              fullId = product.id;
+              itemName = product.name;
+              coaUrl = product.coa_url;
+              destinationUrl = coaUrl || `https://floradistro.com/products/${product.id}`;
+            }
           }
         } else if (codeType === 'O') {
-          const { data: order } = await mainSupabase
+          const { data: orders } = await mainSupabase
             .from('orders')
             .select('id, order_number')
-            .ilike('id', `${shortId.toLowerCase()}%`)
-            .single();
+            .limit(1000);
 
-          if (order) {
-            fullId = order.id;
-            itemName = `Order #${order.order_number || order.id.substring(0, 8)}`;
-            destinationUrl = `https://floradistro.com/orders/${order.id}`;
+          if (orders) {
+            const searchPattern = shortId.toLowerCase();
+            const order = orders.find(o =>
+              o.id.replace(/-/g, '').toLowerCase().startsWith(searchPattern)
+            );
+
+            if (order) {
+              fullId = order.id;
+              itemName = `Order #${order.order_number || order.id.substring(0, 8)}`;
+              destinationUrl = `https://floradistro.com/orders/${order.id}`;
+            }
           }
         }
 
