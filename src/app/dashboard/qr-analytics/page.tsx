@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2, ListTodo } from 'lucide-react'
+import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2, ListTodo, Download, ExternalLink as LinkIcon } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { CTAManager } from '@/components/qr/CTAManager'
 
@@ -44,6 +44,7 @@ export default function QRAnalyticsPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [creating, setCreating] = useState(false)
   const [ctaManagerOpen, setCTAManagerOpen] = useState<{ id: string; name: string } | null>(null)
+  const [viewingQR, setViewingQR] = useState<QRCodeData | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -53,8 +54,6 @@ export default function QRAnalyticsPage() {
     destination_url: '',
     landing_page_title: '',
     landing_page_description: '',
-    landing_page_cta_text: '',
-    landing_page_cta_url: '',
     campaign_name: '',
   })
 
@@ -138,8 +137,6 @@ export default function QRAnalyticsPage() {
           destination_url: '',
           landing_page_title: '',
           landing_page_description: '',
-          landing_page_cta_text: '',
-          landing_page_cta_url: '',
           campaign_name: '',
         })
         loadData() // Reload data
@@ -291,17 +288,30 @@ export default function QRAnalyticsPage() {
                         <span>{qr.unique_devices || 0} devices</span>
                       </div>
                     </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setCTAManagerOpen({ id: qr.id, name: qr.name })
-                      }}
-                      className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1"
-                      title="Manage CTAs"
-                    >
-                      <ListTodo className="w-3 h-3" />
-                      CTAs
-                    </button>
+                    <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setViewingQR(qr)
+                        }}
+                        className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs flex items-center gap-1"
+                        title="View QR Code"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        QR
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setCTAManagerOpen({ id: qr.id, name: qr.name })
+                        }}
+                        className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs flex items-center gap-1"
+                        title="Manage CTAs"
+                      >
+                        <ListTodo className="w-3 h-3" />
+                        CTAs
+                      </button>
+                    </div>
                   </div>
                 ))}
               </>
@@ -461,28 +471,9 @@ export default function QRAnalyticsPage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm text-zinc-400 mb-2">CTA Text</label>
-                      <input
-                        type="text"
-                        value={formData.landing_page_cta_text}
-                        onChange={(e) => setFormData({ ...formData, landing_page_cta_text: e.target.value })}
-                        className="w-full bg-zinc-950 border border-zinc-800 text-white px-3 py-2 text-sm"
-                        placeholder="Shop Now"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm text-zinc-400 mb-2">CTA URL</label>
-                      <input
-                        type="url"
-                        value={formData.landing_page_cta_url}
-                        onChange={(e) => setFormData({ ...formData, landing_page_cta_url: e.target.value })}
-                        className="w-full bg-zinc-950 border border-zinc-800 text-white px-3 py-2 text-sm"
-                        placeholder="/shop"
-                      />
-                    </div>
-                  </div>
+                  <p className="text-xs text-zinc-600 mt-2">
+                    After creating the QR code, use the "CTAs" button to add multiple call-to-action buttons with advanced features.
+                  </p>
                 </div>
               </div>
 
@@ -524,6 +515,94 @@ export default function QRAnalyticsPage() {
           qrCodeName={ctaManagerOpen.name}
           onClose={() => setCTAManagerOpen(null)}
         />
+      )}
+
+      {/* QR Code Viewer Modal */}
+      {viewingQR && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 max-w-2xl w-full">
+            <div className="p-6 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-light text-white">{viewingQR.name}</h2>
+                <p className="text-sm text-zinc-500 mt-1 font-mono">{viewingQR.code}</p>
+              </div>
+              <button
+                onClick={() => setViewingQR(null)}
+                className="text-zinc-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6">
+              {/* QR Code Display */}
+              <div className="flex flex-col items-center gap-6">
+                <div className="bg-white p-6 rounded">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(`https://floradistro.com/qr/${viewingQR.code}`)}`}
+                    alt={`QR Code for ${viewingQR.name}`}
+                    className="w-[300px] h-[300px]"
+                  />
+                </div>
+
+                <div className="w-full space-y-3">
+                  <div className="p-3 bg-zinc-950 border border-zinc-800">
+                    <div className="text-xs text-zinc-500 mb-1">Landing Page URL</div>
+                    <div className="flex items-center gap-2">
+                      <code className="text-sm text-white flex-1">{`https://floradistro.com/qr/${viewingQR.code}`}</code>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`https://floradistro.com/qr/${viewingQR.code}`)
+                          alert('URL copied to clipboard!')
+                        }}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                      >
+                        Copy
+                      </button>
+                      <a
+                        href={`https://floradistro.com/qr/${viewingQR.code}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs flex items-center gap-1"
+                      >
+                        <LinkIcon className="w-3 h-3" />
+                        Visit
+                      </a>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3">
+                    <a
+                      href={`https://api.qrserver.com/v1/create-qr-code/?size=1000x1000&data=${encodeURIComponent(`https://floradistro.com/qr/${viewingQR.code}`)}`}
+                      download={`qr-code-${viewingQR.code}.png`}
+                      className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white text-sm transition-colors"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download QR Code (1000x1000)
+                    </a>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 bg-zinc-950 border border-zinc-800">
+                      <div className="text-zinc-500 mb-1">Type</div>
+                      <div className="text-white capitalize">{viewingQR.type}</div>
+                    </div>
+                    <div className="p-3 bg-zinc-950 border border-zinc-800">
+                      <div className="text-zinc-500 mb-1">Total Scans</div>
+                      <div className="text-white">{viewingQR.total_scans || 0}</div>
+                    </div>
+                    {viewingQR.campaign_name && (
+                      <div className="p-3 bg-zinc-950 border border-zinc-800 col-span-2">
+                        <div className="text-zinc-500 mb-1">Campaign</div>
+                        <div className="text-white">{viewingQR.campaign_name}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
