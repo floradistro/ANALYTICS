@@ -44,25 +44,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if code already exists for this vendor
-    const { data: existing } = await supabase
-      .from('qr_codes')
-      .select('id')
-      .eq('vendor_id', vendor_id)
-      .eq('code', code)
-      .single();
-
-    if (existing) {
-      return NextResponse.json(
-        { error: 'QR code with this code already exists for this vendor' },
-        { status: 409 }
-      );
-    }
-
-    // Create QR code
+    // Upsert QR code (insert if new, update if exists)
+    // This ensures Swift app registration always wins over auto-created QR codes
     const { data, error } = await supabase
       .from('qr_codes')
-      .insert({
+      .upsert({
         vendor_id,
         code,
         name,
@@ -86,6 +72,9 @@ export async function POST(request: NextRequest) {
         max_scans,
         tags,
         created_by
+      }, {
+        onConflict: 'vendor_id,code',
+        ignoreDuplicates: false  // Update existing records
       })
       .select()
       .single();
