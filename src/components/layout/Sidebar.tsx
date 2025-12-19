@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ClipboardCheck,
   Package,
+  QrCode,
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useState, useEffect } from 'react'
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/sales', label: 'Sales Analytics', icon: TrendingUp },
   { href: '/dashboard/traffic', label: 'Web Analytics', icon: Activity },
+  { href: '/dashboard/qr-analytics', label: 'QR Analytics', icon: QrCode },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/dashboard/inventory', label: 'Inventory', icon: Package },
   { href: '/dashboard/shipments', label: 'Shipments', icon: Truck },

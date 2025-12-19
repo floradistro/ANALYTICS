@@ -47,18 +47,71 @@ export async function POST(request: NextRequest) {
     }
 
     // Get QR code
-    const { data: qrCode, error: qrError } = await supabase
+    let { data: qrCode, error: qrError } = await supabase
       .from('qr_codes')
       .select('*')
       .eq('code', code)
       .eq('vendor_id', vendor_id)
       .single();
 
+    // Auto-create QR code if not found (for product/order codes)
     if (qrError || !qrCode) {
-      return NextResponse.json(
-        { error: 'QR code not found' },
-        { status: 404 }
-      );
+      // Parse code type from prefix: P = product, O = order, L = location, C = campaign
+      const codeType = code.charAt(0);
+      const codeId = code.substring(1); // The UUID portion
+
+      if (codeType === 'P' || codeType === 'O' || codeType === 'L') {
+        // Auto-create the QR code entry
+        const typeMap: Record<string, string> = {
+          'P': 'product',
+          'O': 'order',
+          'L': 'location'
+        };
+
+        // Build destination URL based on type
+        let destinationUrl = 'https://floradistro.com';
+        if (codeType === 'P') {
+          destinationUrl = `https://floradistro.com/products/${codeId}`;
+        } else if (codeType === 'O') {
+          destinationUrl = `https://floradistro.com/orders/${codeId}`;
+        } else if (codeType === 'L') {
+          destinationUrl = `https://floradistro.com/locations/${codeId}`;
+        }
+
+        const { data: newQrCode, error: createError } = await supabase
+          .from('qr_codes')
+          .insert({
+            vendor_id,
+            code,
+            name: `${typeMap[codeType]} ${codeId}`,
+            type: typeMap[codeType],
+            destination_url: destinationUrl,
+            is_active: true,
+            product_id: codeType === 'P' ? codeId : null,
+            order_id: codeType === 'O' ? codeId : null,
+            location_id: codeType === 'L' ? codeId : null,
+            campaign_name: 'auto_created'
+          })
+          .select()
+          .single();
+
+        if (createError) {
+          console.error('Error auto-creating QR code:', createError);
+          return NextResponse.json(
+            { error: 'QR code not found and auto-creation failed', details: createError.message },
+            { status: 404 }
+          );
+        }
+
+        qrCode = newQrCode;
+        console.log(`Auto-created QR code: ${code} (${typeMap[codeType]})`);
+      } else {
+        // Unknown code format - can't auto-create
+        return NextResponse.json(
+          { error: 'QR code not found' },
+          { status: 404 }
+        );
+      }
     }
 
     // Check if active
