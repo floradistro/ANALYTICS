@@ -51,9 +51,11 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Return same structure as scan endpoint for compatibility
     return NextResponse.json({
       qr_code: qrCode,
-      message: 'QR code fetched without tracking'
+      scan_id: null,
+      is_first_scan: false
     });
 
   } catch (error: any) {
