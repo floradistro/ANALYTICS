@@ -1,9 +1,10 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2, ListTodo, Download, ExternalLink as LinkIcon } from 'lucide-react'
+import { QrCode, MapPin, Smartphone, TrendingUp, Users, Eye, ExternalLink, Plus, X, Loader2, ListTodo, Download, ExternalLink as LinkIcon, BarChart3 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { CTAManager } from '@/components/qr/CTAManager'
+import { QRAnalyticsModal } from '@/components/qr/QRAnalyticsModal'
 
 interface QRCodeData {
   id: string
@@ -45,6 +46,7 @@ export default function QRAnalyticsPage() {
   const [creating, setCreating] = useState(false)
   const [ctaManagerOpen, setCTAManagerOpen] = useState<{ id: string; name: string } | null>(null)
   const [viewingQR, setViewingQR] = useState<QRCodeData | null>(null)
+  const [analyticsQR, setAnalyticsQR] = useState<QRCodeData | null>(null)
 
   // Form state
   const [formData, setFormData] = useState({
@@ -289,6 +291,17 @@ export default function QRAnalyticsPage() {
                       </div>
                     </button>
                     <div className="absolute bottom-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setAnalyticsQR(qr)
+                        }}
+                        className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs flex items-center gap-1"
+                        title="View Analytics"
+                      >
+                        <BarChart3 className="w-3 h-3" />
+                        Analytics
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -603,6 +616,15 @@ export default function QRAnalyticsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Analytics Modal */}
+      {analyticsQR && vendorId && (
+        <QRAnalyticsModal
+          qrCode={analyticsQR}
+          vendorId={vendorId}
+          onClose={() => setAnalyticsQR(null)}
+        />
       )}
     </div>
   )

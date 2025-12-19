@@ -1,77 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
+/**
+ * GET /api/qr/get
+ * Fallback endpoint to fetch QR code data without tracking
+ * Used when the scan endpoint fails (e.g., fingerprint issues)
+ */
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const searchParams = request.nextUrl.searchParams;
     const code = searchParams.get('code');
-    const qr_code_id = searchParams.get('qr_code_id');
-    const vendor_id = searchParams.get('vendor_id');
+    const vendorId = searchParams.get('vendor_id');
 
-    if (!code && !qr_code_id) {
+    if (!code) {
       return NextResponse.json(
-        { error: 'code or qr_code_id is required' },
+        { error: 'Missing code parameter' },
         { status: 400 }
       );
     }
 
-    let query = supabase.from('qr_codes').select('*');
+    const supabase = await createClient();
 
-    if (qr_code_id) {
-      query = query.eq('id', qr_code_id);
-    } else if (code) {
-      query = query.eq('code', code);
-      if (vendor_id) {
-        query = query.eq('vendor_id', vendor_id);
-      }
+    // Build query
+    let query = supabase
+      .from('qr_codes')
+      .select('*')
+      .eq('code', code);
+
+    if (vendorId) {
+      query = query.eq('vendor_id', vendorId);
     }
 
-    const { data, error } = await query.single();
+    const { data: qrCode, error } = await query.maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') {
-        return NextResponse.json(
-          { error: 'QR code not found' },
-          { status: 404 }
-        );
-      }
-      console.error('Error fetching QR code:', error);
+      console.error('[QR Get] Database error:', error);
       return NextResponse.json(
-        { error: 'Failed to fetch QR code', details: error.message },
+        { error: 'Failed to fetch QR code' },
         { status: 500 }
       );
     }
 
-    // Check if expired
-    if (data.expires_at && new Date(data.expires_at) < new Date()) {
-      return NextResponse.json({
-        success: true,
-        qr_code: data,
-        expired: true
-      });
-    }
-
-    // Check if max scans reached
-    if (data.max_scans && data.total_scans >= data.max_scans) {
-      return NextResponse.json({
-        success: true,
-        qr_code: data,
-        max_scans_reached: true
-      });
+    if (!qrCode) {
+      return NextResponse.json(
+        { error: 'QR code not found' },
+        { status: 404 }
+      );
     }
 
     return NextResponse.json({
-      success: true,
-      qr_code: data
+      qr_code: qrCode,
+      message: 'QR code fetched without tracking'
     });
 
   } catch (error: any) {
-    console.error('Error in QR code get:', error);
+    console.error('[QR Get] Error:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: error.message },
       { status: 500 }
