@@ -90,11 +90,15 @@ export async function POST(request: NextRequest) {
           const searchPattern = shortId.toLowerCase();
 
           // Fetch all products and find one that matches the prefix
-          // This is not ideal for large datasets but works for now
+          // Note: coa_url is in custom_fields, not a direct column
           const { data: products, error: productError } = await mainSupabase
             .from('products')
-            .select('id, name, coa_url')
+            .select('id, name, custom_fields')
             .limit(1000);
+
+          if (productError) {
+            console.error('Product lookup error:', productError);
+          }
 
           console.log(`Product lookup - searching for ${searchPattern} in ${products?.length || 0} products`);
 
@@ -108,8 +112,10 @@ export async function POST(request: NextRequest) {
               console.log(`Found product: ${product.name} (${product.id})`);
               fullId = product.id;
               itemName = product.name;
-              coaUrl = product.coa_url;
-              destinationUrl = coaUrl || `https://floradistro.com/products/${product.id}`;
+              // Extract COA URL from custom_fields if available
+              const cf = product.custom_fields as Record<string, any> || {};
+              coaUrl = cf.coa_url || cf.coaUrl || cf.coa_file_url || null;
+              destinationUrl = coaUrl || `https://floradistro.com/product/${product.id}`;
             }
           }
         } else if (codeType === 'O') {

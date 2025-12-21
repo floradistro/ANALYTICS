@@ -8,11 +8,12 @@ import {
   Users, Eye, Globe, TrendingUp, ShoppingCart, DollarSign,
   Target, RefreshCw, CreditCard, CheckCircle, XCircle, ArrowRight,
   MousePointer, Scroll, AlertTriangle, Fingerprint, Bot, UserCheck,
-  Monitor, Smartphone, Tablet, MapPin, Activity, Zap, Clock
+  Monitor, Smartphone, Tablet, MapPin, Activity, Zap, Clock, ExternalLink
 } from 'lucide-react'
 import { ResponsiveBar } from '@nivo/bar'
 import { ResponsiveLine } from '@nivo/line'
 import { nivoTheme, colors } from '@/lib/theme'
+import { AnalyticsDetailModal } from '@/components/AnalyticsDetailModal'
 
 interface AnalyticsData {
   visitors: {
@@ -53,6 +54,15 @@ export default function WebAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'behavior' | 'quality'>('overview')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalType, setModalType] = useState<'rage' | 'scroll' | 'heatmap' | 'recording' | 'visitors' | 'pages'>('rage')
+  const [modalTitle, setModalTitle] = useState('')
+
+  const openDetailModal = (type: typeof modalType, title: string) => {
+    setModalType(type)
+    setModalTitle(title)
+    setModalOpen(true)
+  }
 
   const fetchAnalytics = useCallback(async () => {
     if (!vendorId) return
@@ -516,41 +526,65 @@ export default function WebAnalyticsPage() {
         <>
           {/* Behavioral Metrics */}
           <div className="grid grid-cols-4 gap-4">
-            <div className="bg-zinc-950 border border-zinc-900 p-5">
-              <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
-                <MousePointer className="w-3.5 h-3.5" />
-                Total Clicks
+            <button
+              onClick={() => openDetailModal('heatmap', 'Click Heatmap')}
+              className="bg-zinc-950 border border-zinc-900 p-5 text-left hover:border-zinc-700 hover:bg-zinc-900/50 transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
+                  <MousePointer className="w-3.5 h-3.5" />
+                  Total Clicks
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-700 group-hover:text-zinc-400 transition-colors" />
               </div>
               <div className="text-3xl font-light text-white">{formatNumber(data.behavioral.totalClicks)}</div>
               <div className="text-xs text-zinc-500 mt-1">tracked interactions</div>
-            </div>
+            </button>
 
-            <div className="bg-zinc-950 border border-zinc-900 p-5">
-              <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
-                <Scroll className="w-3.5 h-3.5" />
-                Avg Scroll Depth
+            <button
+              onClick={() => openDetailModal('scroll', 'Scroll Depth Analysis')}
+              className="bg-zinc-950 border border-zinc-900 p-5 text-left hover:border-zinc-700 hover:bg-zinc-900/50 transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
+                  <Scroll className="w-3.5 h-3.5" />
+                  Avg Scroll Depth
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-700 group-hover:text-zinc-400 transition-colors" />
               </div>
               <div className="text-3xl font-light text-white">{data.behavioral.avgScrollDepth}%</div>
               <div className="text-xs text-zinc-500 mt-1">content engagement</div>
-            </div>
+            </button>
 
-            <div className="bg-zinc-950 border border-zinc-900 p-5">
-              <div className="flex items-center gap-2 text-xs text-red-400 uppercase tracking-wider mb-2">
-                <AlertTriangle className="w-3.5 h-3.5" />
-                Rage Clicks
+            <button
+              onClick={() => openDetailModal('rage', 'Rage Click Sessions')}
+              className="bg-zinc-950 border border-zinc-900 p-5 text-left hover:border-red-900/50 hover:bg-red-950/20 transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-red-400 uppercase tracking-wider mb-2">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Rage Clicks
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-700 group-hover:text-red-400 transition-colors" />
               </div>
               <div className="text-3xl font-light text-red-400">{data.behavioral.rageClicks}</div>
-              <div className="text-xs text-zinc-500 mt-1">frustration events</div>
-            </div>
+              <div className="text-xs text-zinc-500 mt-1">click to replay sessions</div>
+            </button>
 
-            <div className="bg-zinc-950 border border-zinc-900 p-5">
-              <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
-                <Activity className="w-3.5 h-3.5" />
-                Pages Tracked
+            <button
+              onClick={() => openDetailModal('recording', 'Session Recordings')}
+              className="bg-zinc-950 border border-zinc-900 p-5 text-left hover:border-zinc-700 hover:bg-zinc-900/50 transition-all group"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-zinc-500 uppercase tracking-wider mb-2">
+                  <Activity className="w-3.5 h-3.5" />
+                  Pages Tracked
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-zinc-700 group-hover:text-zinc-400 transition-colors" />
               </div>
               <div className="text-3xl font-light text-white">{data.behavioral.pagesWithData}</div>
               <div className="text-xs text-zinc-500 mt-1">with behavioral data</div>
-            </div>
+            </button>
           </div>
 
           {/* Engagement Analysis */}
@@ -581,8 +615,14 @@ export default function WebAnalyticsPage() {
                 </div>
               </div>
 
-              <div>
-                <h4 className="text-xs text-zinc-400 uppercase tracking-wider mb-4">UX Health</h4>
+              <button
+                onClick={() => openDetailModal('rage', 'Rage Click Sessions')}
+                className="text-left hover:bg-zinc-800/50 p-3 -m-3 rounded transition-colors group"
+              >
+                <h4 className="text-xs text-zinc-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  UX Health
+                  <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </h4>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-sm text-zinc-300">Rage clicks detected</span>
@@ -594,20 +634,23 @@ export default function WebAnalyticsPage() {
                     {data.behavioral.rageClicks === 0
                       ? 'No frustration detected. Great UX!'
                       : data.behavioral.rageClicks < 5
-                      ? 'Minor friction points. Worth investigating.'
-                      : 'Significant UX issues. Check for broken buttons or slow loads.'}
+                      ? 'Minor friction points. Click to investigate.'
+                      : 'Significant UX issues. Click to see sessions.'}
                   </p>
                 </div>
-              </div>
+              </button>
             </div>
           </div>
 
-          {/* Coming Soon */}
-          <div className="bg-zinc-950/50 border border-dashed border-zinc-800 p-8 text-center">
-            <Zap className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-            <h3 className="text-zinc-400 mb-2">Heatmap Visualization Coming Soon</h3>
-            <p className="text-xs text-zinc-600">Click and scroll heatmaps will appear here</p>
-          </div>
+          {/* Heatmap Preview */}
+          <button
+            onClick={() => openDetailModal('heatmap', 'Click Heatmap')}
+            className="w-full bg-zinc-950/50 border border-zinc-800 hover:border-zinc-700 p-8 text-center transition-all group"
+          >
+            <MousePointer className="w-8 h-8 text-zinc-600 group-hover:text-orange-400 mx-auto mb-3 transition-colors" />
+            <h3 className="text-zinc-400 group-hover:text-white mb-2 transition-colors">View Click Heatmaps</h3>
+            <p className="text-xs text-zinc-600">See where users are clicking on your pages</p>
+          </button>
         </>
       )}
 
@@ -742,6 +785,18 @@ export default function WebAnalyticsPage() {
             </div>
           </div>
         </>
+      )}
+
+      {/* Detail Modal */}
+      {vendorId && (
+        <AnalyticsDetailModal
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          type={modalType}
+          title={modalTitle}
+          vendorId={vendorId}
+          dateRange={getDateRangeForQuery()}
+        />
       )}
     </div>
   )

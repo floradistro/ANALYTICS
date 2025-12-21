@@ -369,15 +369,16 @@ export async function GET(request: NextRequest) {
     ])
 
     // Extract counts from RPC results or use fallback
-    const visitorData = visitorStats.data || { total: 0, unique_visitors: 0, unique_sessions: 0, returning: 0 }
-    const pageViewData = pageViewStats.data || { total: 0, bounced_sessions: 0, total_sessions: 0 }
+    // RPC functions return an array (RETURNS TABLE), so extract the first row
+    const visitorData = visitorStats.data?.[0] || { total: 0, unique_visitors: 0, unique_sessions: 0, returning_count: 0 }
+    const pageViewData = pageViewStats.data?.[0] || { total: 0, bounced_sessions: 0, total_sessions: 0 }
 
     return NextResponse.json({
       visitors: {
         total: visitorData.total || 0,
         unique: visitorData.unique_visitors || 0,
         sessions: visitorData.unique_sessions || 0,
-        returning: visitorData.returning || 0,
+        returning: visitorData.returning_count || 0,
       },
       pageViews: {
         total: pageViewData.total || 0,
