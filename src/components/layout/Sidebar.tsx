@@ -29,7 +29,7 @@ const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
   { href: '/dashboard/sales', label: 'Sales Analytics', icon: TrendingUp },
   { href: '/dashboard/traffic', label: 'Web Analytics', icon: Activity },
-  { href: '/dashboard/qr-analytics', label: 'QR Analytics', icon: QrCode },
+  { href: '/dashboard/qr', label: 'QR Codes', icon: QrCode },
   { href: '/dashboard/orders', label: 'Orders', icon: ShoppingCart },
   { href: '/dashboard/products', label: 'Products', icon: Package },
   { href: '/dashboard/inventory', label: 'Inventory', icon: Warehouse },
