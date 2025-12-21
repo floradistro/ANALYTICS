@@ -67,6 +67,9 @@ interface GeoPoint {
   purchases?: number
   sessionRevenue?: number
   landingPage?: string
+  // Geolocation accuracy
+  geoSource?: string
+  geoAccuracy?: number
 }
 
 interface MapLayers {
@@ -494,10 +497,11 @@ export default function MapDashboardPage() {
       // Log geolocation source distribution for debugging
       const geoSourceCounts = new Map<string, number>()
       for (const v of visitors || []) {
-        const source = v.geolocation_source || 'unknown'
+        const source = v.geolocation_source || 'null/empty'
         geoSourceCounts.set(source, (geoSourceCounts.get(source) || 0) + 1)
       }
-      console.log('[Map] Geolocation sources:', Object.fromEntries(geoSourceCounts))
+      console.log('[Map] DB geolocation_source distribution:', Object.fromEntries(geoSourceCounts))
+      console.log('[Map] Total visitors with lat/lng:', visitors?.length || 0)
 
       if (sessionIds.length > 0) {
         // Get page view counts
@@ -539,6 +543,9 @@ export default function MapDashboardPage() {
         }
       }
 
+      // Aggregate inaccurate locations by city
+      const cityAggregates = new Map<string, { count: number; city: string; state: string; lat: number; lng: number }>()
+
       if (visitors) {
         for (const visitor of visitors) {
           const sessionEvents = eventCounts.get(visitor.session_id) || { total: 0, products: 0, carts: 0, purchases: 0, revenue: 0 }
@@ -548,45 +555,23 @@ export default function MapDashboardPage() {
             try { landingPage = new URL(visitor.page_url).pathname } catch {}
           }
 
-          // Use geolocation with priority: browser_gps > ipinfo > city_centroid_backfill > city lookup > vercel headers
-          let coords: { lat: number; lng: number } | null = null
-          const geoSource = visitor.geolocation_source
+          // Determine geo source
+          let geoSource = visitor.geolocation_source || ''
+          const isAccurate = geoSource === 'browser_gps' || geoSource === 'ipinfo'
 
-          // Priority 1: Use database coordinates if from accurate sources
-          if ((geoSource === 'browser_gps' || geoSource === 'ipinfo' || geoSource === 'city_centroid_backfill') && visitor.latitude && visitor.longitude) {
-            coords = { lat: visitor.latitude, lng: visitor.longitude }
-          }
-          // Priority 2: Use city/region lookup for ungeocoded records
-          else if (visitor.city && visitor.region && !visitor.latitude) {
-            coords = getCityCoordinates(visitor.city, visitor.region)
-          }
-          // Priority 3: Fallback to raw lat/lng (old vercel datacenter IPs)
-          else if (visitor.latitude && visitor.longitude) {
-            coords = { lat: visitor.latitude, lng: visitor.longitude }
-          }
+          // For accurate sources, plot individual points
+          if (isAccurate && visitor.latitude && visitor.longitude) {
+            // Small jitter to spread visitors
+            const jitterAmount = geoSource === 'browser_gps' ? 0.002 : 0.01
+            const jitterLat = (Math.random() - 0.5) * jitterAmount
+            const jitterLng = (Math.random() - 0.5) * jitterAmount
 
-          if (!coords) continue
-
-          // Small jitter to spread visitors within same location
-          // Less jitter for GPS (more accurate), more jitter for city-level
-          let jitterAmount = 0.02 // Default: ~2km radius
-          if (geoSource === 'browser_gps') {
-            jitterAmount = 0.002 // GPS: ~200m radius (very accurate)
-          } else if (geoSource === 'ipinfo') {
-            jitterAmount = 0.01 // ipinfo: ~1km radius (city-accurate)
-          } else if (geoSource === 'city_centroid_backfill') {
-            jitterAmount = 0.08 // Backfilled: ~8km radius (spread across city)
-          }
-          const jitterLat = (Math.random() - 0.5) * jitterAmount
-          const jitterLng = (Math.random() - 0.5) * jitterAmount
-
-          trafficPoints.push({
-            lat: coords.lat + jitterLat, lng: coords.lng + jitterLng, type: 'traffic',
+            trafficPoints.push({
+              lat: visitor.latitude + jitterLat, lng: visitor.longitude + jitterLng, type: 'traffic',
               revenue: sessionEvents.revenue, orders: sessionEvents.purchases,
               city: visitor.city || undefined,
               state: visitor.region || undefined, device: visitor.device_type || undefined,
               timestamp: visitor.created_at,
-              // Attribution data
               channel: visitor.channel || undefined,
               utmSource: visitor.utm_source || undefined,
               utmMedium: visitor.utm_medium || undefined,
@@ -596,7 +581,6 @@ export default function MapDashboardPage() {
               os: visitor.os || undefined,
               isReturning: visitor.is_returning || false,
               country: visitor.country || undefined,
-              // Session activity data
               sessionId: visitor.session_id || undefined,
               visitorId: visitor.visitor_id || undefined,
               pageViews: pageViewCounts.get(visitor.session_id) || 1,
@@ -605,9 +589,56 @@ export default function MapDashboardPage() {
               purchases: sessionEvents.purchases,
               sessionRevenue: sessionEvents.revenue,
               landingPage,
+              geoSource: geoSource,
+              geoAccuracy: visitor.geolocation_accuracy || undefined,
             })
+          } else {
+            // For inaccurate sources, aggregate by city
+            const city = visitor.city || 'Unknown'
+            const state = visitor.region || ''
+            const cityKey = `${city}, ${state}`.toLowerCase()
+
+            if (!cityAggregates.has(cityKey)) {
+              // Get city coordinates for the aggregate marker
+              let coords = getCityCoordinates(city, state)
+              if (!coords && visitor.latitude && visitor.longitude) {
+                coords = { lat: visitor.latitude, lng: visitor.longitude }
+              }
+              if (coords) {
+                cityAggregates.set(cityKey, { count: 0, city, state, lat: coords.lat, lng: coords.lng })
+              }
+            }
+            const agg = cityAggregates.get(cityKey)
+            if (agg) agg.count++
+          }
         }
       }
+
+      // Add city aggregate markers as special traffic points
+      for (const [, agg] of cityAggregates) {
+        if (agg.count > 0) {
+          trafficPoints.push({
+            lat: agg.lat, lng: agg.lng, type: 'traffic',
+            revenue: 0, orders: 0, customers: agg.count,
+            city: agg.city, state: agg.state,
+            geoSource: 'city_aggregate',
+            // Store count in a way the map can use for sizing
+            pageViews: agg.count,
+          })
+        }
+      }
+
+      console.log('[Map] City aggregates:', cityAggregates.size, 'cities with inaccurate data')
+
+      // Log final geoSource distribution in traffic points
+      const finalGeoSourceCounts = new Map<string, number>()
+      const accurateCount = trafficPoints.filter(p => p.geoSource === 'browser_gps' || p.geoSource === 'ipinfo').length
+      for (const p of trafficPoints) {
+        const source = p.geoSource || 'no_source'
+        finalGeoSourceCounts.set(source, (finalGeoSourceCounts.get(source) || 0) + 1)
+      }
+      console.log('[Map] Final traffic geoSource distribution:', Object.fromEntries(finalGeoSourceCounts))
+      console.log('[Map] Accurate (browser_gps + ipinfo):', accurateCount, '/', trafficPoints.length)
 
       // Calculate stats
       const totalStoreOrders = Array.from(storeOrderAgg.values()).reduce((sum, d) => sum + d.orders, 0)

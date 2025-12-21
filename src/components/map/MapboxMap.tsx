@@ -48,6 +48,9 @@ interface GeoPoint {
   purchases?: number
   sessionRevenue?: number
   landingPage?: string
+  // Geolocation accuracy indicator
+  geoSource?: 'browser_gps' | 'ipinfo' | 'vercel_headers' | 'city_centroid_backfill' | string
+  geoAccuracy?: number // meters
 }
 
 interface MapLayers {
@@ -146,6 +149,11 @@ function createGeoJSON(points: GeoPoint[], maxRevenue: number): GeoJSON.FeatureC
         purchases: p.purchases || 0,
         sessionRevenue: p.sessionRevenue || 0,
         landingPage: p.landingPage || '',
+        // Geolocation source for styling (accurate vs inaccurate)
+        geoSource: p.geoSource || '',
+        geoAccuracy: p.geoAccuracy || 0,
+        // Only browser_gps and ipinfo are truly accurate - everything else clusters at city centers
+        isAccurate: p.geoSource === 'browser_gps' || p.geoSource === 'ipinfo',
       },
     })),
   }
@@ -795,7 +803,7 @@ export default function MapboxMap({ layers, visibleLayers, isLoading, journeys =
     setLayerVisibility(['customers-heat', 'customers', 'customers-glow'], visibleLayers.customers)
     setLayerVisibility(['shipping-heat', 'shipping', 'shipping-glow'], visibleLayers.shipping)
     setLayerVisibility(['stores-glow', 'stores', 'stores-pulse'], visibleLayers.stores)
-    setLayerVisibility(['traffic-heat', 'traffic', 'traffic-glow'], visibleLayers.traffic)
+    setLayerVisibility(['traffic-heat', 'traffic', 'traffic-glow', 'traffic-city-aggregate', 'traffic-city-aggregate-label'], visibleLayers.traffic)
     setLayerVisibility(['usps-glow', 'usps-facilities', 'usps-labels'], visibleLayers.usps)
     setLayerVisibility(['journey-lines', 'journey-lines-glow', 'journey-points', 'journey-points-glow'], visibleLayers.journeys)
 
@@ -1582,11 +1590,19 @@ function addAllLayers(m: mapboxgl.Map) {
     },
   })
 
-  // === TRAFFIC LAYERS (Rose) ===
+  // === TRAFFIC LAYERS (Rose) - Split into accurate vs inaccurate ===
+  // Accurate = browser_gps or ipinfo (real location data)
+  // Inaccurate = everything else (city centroids, datacenter IPs, unknown)
+
+  // Accurate traffic heatmap (browser_gps, ipinfo only)
   safeAddLayer({
     id: 'traffic-heat',
     type: 'heatmap',
     source: 'traffic-data',
+    filter: ['any',
+      ['==', ['get', 'geoSource'], 'browser_gps'],
+      ['==', ['get', 'geoSource'], 'ipinfo']
+    ],
     maxzoom: 9,
     paint: {
       'heatmap-weight': 1,
@@ -1605,10 +1621,15 @@ function addAllLayers(m: mapboxgl.Map) {
     },
   })
 
+  // Accurate traffic glow
   safeAddLayer({
     id: 'traffic-glow',
     type: 'circle',
     source: 'traffic-data',
+    filter: ['any',
+      ['==', ['get', 'geoSource'], 'browser_gps'],
+      ['==', ['get', 'geoSource'], 'ipinfo']
+    ],
     minzoom: 6,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 5, 12, 10],
@@ -1618,10 +1639,15 @@ function addAllLayers(m: mapboxgl.Map) {
     },
   })
 
+  // Accurate traffic points - prominent rose color
   safeAddLayer({
     id: 'traffic',
     type: 'circle',
     source: 'traffic-data',
+    filter: ['any',
+      ['==', ['get', 'geoSource'], 'browser_gps'],
+      ['==', ['get', 'geoSource'], 'ipinfo']
+    ],
     minzoom: 6,
     paint: {
       'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 3, 12, 6],
@@ -1630,6 +1656,51 @@ function addAllLayers(m: mapboxgl.Map) {
       'circle-stroke-width': 1,
       'circle-stroke-color': '#fb7185',
       'circle-stroke-opacity': 0.7,
+    },
+  })
+
+  // === CITY AGGREGATE LAYERS (for inaccurate/unknown locations) ===
+  // These show as labeled markers with visitor counts per city
+
+  // City aggregate circles - size based on count
+  safeAddLayer({
+    id: 'traffic-city-aggregate',
+    type: 'circle',
+    source: 'traffic-data',
+    filter: ['==', ['get', 'geoSource'], 'city_aggregate'],
+    paint: {
+      // Size based on visitor count (stored in pageViews/customers)
+      'circle-radius': [
+        'interpolate', ['linear'],
+        ['coalesce', ['get', 'customers'], ['get', 'pageViews'], 1],
+        1, 8,
+        10, 12,
+        50, 18,
+        100, 24,
+        500, 32
+      ],
+      'circle-color': 'rgba(107, 114, 128, 0.6)', // Gray
+      'circle-stroke-width': 2,
+      'circle-stroke-color': 'rgba(156, 163, 175, 0.8)',
+    },
+  })
+
+  // City aggregate labels showing count
+  safeAddLayer({
+    id: 'traffic-city-aggregate-label',
+    type: 'symbol',
+    source: 'traffic-data',
+    filter: ['==', ['get', 'geoSource'], 'city_aggregate'],
+    layout: {
+      'text-field': ['to-string', ['coalesce', ['get', 'customers'], ['get', 'pageViews'], '']],
+      'text-size': 11,
+      'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+      'text-allow-overlap': true,
+    },
+    paint: {
+      'text-color': '#ffffff',
+      'text-halo-color': 'rgba(0, 0, 0, 0.5)',
+      'text-halo-width': 1,
     },
   })
 
