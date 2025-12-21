@@ -46,12 +46,18 @@ export async function POST(request: NextRequest) {
       confidence: fingerprint_confidence
     })
 
-    // CRITICAL: Update website_visitors with fingerprint_id
+    // CRITICAL: Update website_visitors with fingerprint_id and mark JS execution
     // This links the anonymous visitor session to the device fingerprint
+    // Also proves this is a real browser (executed JavaScript)
     if (visitor_id || session_id) {
       const { error: visitorUpdateError } = await supabase
         .from('website_visitors')
-        .update({ fingerprint_id })
+        .update({
+          fingerprint_id,
+          has_js_execution: true,  // Fingerprint requires JS - this proves it's a real browser
+          is_bot: false,           // If they executed our fingerprint JS, not a bot
+          bot_score: 0,
+        })
         .eq('vendor_id', vendor_id)
         .or(`visitor_id.eq.${visitor_id},session_id.eq.${session_id}`)
 

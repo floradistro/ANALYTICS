@@ -50,21 +50,136 @@ function detectChannel(referrer: string | null, utmSource?: string, utmMedium?: 
   return 'referral'
 }
 
-// Detect if user agent is a bot/crawler
-function isBot(ua: string): boolean {
-  const botPatterns = [
-    /bot/i, /crawler/i, /spider/i, /crawling/i,
-    /SentryUptimeBot/i, /facebookexternalhit/i, /AhrefsBot/i,
-    /vercel-screenshot/i, /vercel-favicon/i, /EasyPost/i,
-    /Go-http-client/i, /WordPress/i, /ChatGPT-User/i,
-    /meta-externalagent/i, /Googlebot/i, /bingbot/i,
-    /YandexBot/i, /DuckDuckBot/i, /Slackbot/i,
-    /Twitterbot/i, /LinkedInBot/i, /WhatsApp/i,
-    /Discordbot/i, /TelegramBot/i, /Applebot/i,
-    /PingdomBot/i, /UptimeRobot/i, /StatusCake/i,
-    /HeadlessChrome/i, /PhantomJS/i, /Lighthouse/i,
+// Comprehensive bot detection with scoring
+interface BotDetectionResult {
+  isBot: boolean
+  score: number  // 0-100, higher = more likely bot
+  reasons: string[]
+}
+
+function detectBot(ua: string, hasFingerprint: boolean, source?: string): BotDetectionResult {
+  const reasons: string[] = []
+  let score = 0
+
+  // Check for known bot patterns (definitive)
+  const definiteBotPatterns = [
+    { pattern: /SentryUptimeBot/i, name: 'sentry_uptime', score: 100 },
+    { pattern: /facebookexternalhit/i, name: 'facebook_crawler', score: 100 },
+    { pattern: /AhrefsBot/i, name: 'ahrefs_seo', score: 100 },
+    { pattern: /SEMrushBot/i, name: 'semrush_seo', score: 100 },
+    { pattern: /MJ12bot/i, name: 'majestic_seo', score: 100 },
+    { pattern: /Googlebot/i, name: 'googlebot', score: 100 },
+    { pattern: /bingbot/i, name: 'bingbot', score: 100 },
+    { pattern: /YandexBot/i, name: 'yandex', score: 100 },
+    { pattern: /DuckDuckBot/i, name: 'duckduckgo', score: 100 },
+    { pattern: /Baiduspider/i, name: 'baidu', score: 100 },
+    { pattern: /Slackbot/i, name: 'slack_preview', score: 100 },
+    { pattern: /Twitterbot/i, name: 'twitter_preview', score: 100 },
+    { pattern: /LinkedInBot/i, name: 'linkedin_preview', score: 100 },
+    { pattern: /WhatsApp/i, name: 'whatsapp_preview', score: 100 },
+    { pattern: /Discordbot/i, name: 'discord_preview', score: 100 },
+    { pattern: /TelegramBot/i, name: 'telegram_preview', score: 100 },
+    { pattern: /Applebot/i, name: 'applebot', score: 100 },
+    { pattern: /PingdomBot/i, name: 'pingdom_monitor', score: 100 },
+    { pattern: /UptimeRobot/i, name: 'uptimerobot_monitor', score: 100 },
+    { pattern: /StatusCake/i, name: 'statuscake_monitor', score: 100 },
+    { pattern: /vercel-screenshot/i, name: 'vercel_screenshot', score: 100 },
+    { pattern: /vercel-favicon/i, name: 'vercel_favicon', score: 100 },
+    { pattern: /Vercel Edge/i, name: 'vercel_edge', score: 100 },
+    { pattern: /EasyPost/i, name: 'easypost_webhook', score: 100 },
+    { pattern: /Go-http-client/i, name: 'go_client', score: 90 },
+    { pattern: /python-requests/i, name: 'python_requests', score: 90 },
+    { pattern: /axios/i, name: 'axios_client', score: 90 },
+    { pattern: /node-fetch/i, name: 'node_fetch', score: 90 },
+    { pattern: /WordPress/i, name: 'wordpress', score: 100 },
+    { pattern: /ChatGPT-User/i, name: 'chatgpt', score: 100 },
+    { pattern: /GPTBot/i, name: 'gptbot', score: 100 },
+    { pattern: /anthropic-ai/i, name: 'anthropic', score: 100 },
+    { pattern: /Claude-Web/i, name: 'claude', score: 100 },
+    { pattern: /PerplexityBot/i, name: 'perplexity', score: 100 },
+    { pattern: /meta-externalagent/i, name: 'meta_agent', score: 100 },
   ]
-  return botPatterns.some(pattern => pattern.test(ua))
+
+  // Check definitive bot patterns
+  for (const { pattern, name, score: patternScore } of definiteBotPatterns) {
+    if (pattern.test(ua)) {
+      reasons.push(name)
+      score = Math.max(score, patternScore)
+    }
+  }
+
+  // Check generic bot indicators
+  const genericBotPatterns = [
+    { pattern: /bot/i, name: 'generic_bot', score: 80 },
+    { pattern: /crawler/i, name: 'generic_crawler', score: 80 },
+    { pattern: /spider/i, name: 'generic_spider', score: 80 },
+    { pattern: /scraper/i, name: 'generic_scraper', score: 80 },
+  ]
+
+  for (const { pattern, name, score: patternScore } of genericBotPatterns) {
+    if (pattern.test(ua) && !reasons.length) {
+      reasons.push(name)
+      score = Math.max(score, patternScore)
+    }
+  }
+
+  // Check for headless browsers (high suspicion)
+  const headlessBrowserPatterns = [
+    { pattern: /HeadlessChrome/i, name: 'headless_chrome', score: 95 },
+    { pattern: /PhantomJS/i, name: 'phantomjs', score: 95 },
+    { pattern: /Puppeteer/i, name: 'puppeteer', score: 95 },
+    { pattern: /Playwright/i, name: 'playwright', score: 95 },
+    { pattern: /Selenium/i, name: 'selenium', score: 95 },
+    { pattern: /WebDriver/i, name: 'webdriver', score: 95 },
+    { pattern: /Lighthouse/i, name: 'lighthouse', score: 90 },
+  ]
+
+  for (const { pattern, name, score: patternScore } of headlessBrowserPatterns) {
+    if (pattern.test(ua)) {
+      reasons.push(name)
+      score = Math.max(score, patternScore)
+    }
+  }
+
+  // Suspicious user agent patterns
+  if (!ua || ua.length < 10) {
+    reasons.push('empty_or_short_ua')
+    score = Math.max(score, 70)
+  }
+
+  // Missing expected browser features in UA
+  if (ua && !/(Mozilla|Chrome|Safari|Firefox|Edge|Opera)/i.test(ua) && score < 50) {
+    reasons.push('non_browser_ua')
+    score = Math.max(score, 60)
+  }
+
+  // Old Chrome versions (often used by bots)
+  const chromeMatch = ua.match(/Chrome\/(\d+)/)
+  if (chromeMatch) {
+    const chromeVersion = parseInt(chromeMatch[1])
+    if (chromeVersion < 90) {
+      reasons.push('outdated_chrome')
+      score = Math.max(score, 40)
+    }
+  }
+
+  // Edge request from server (no fingerprint on initial page load is OK)
+  // But if source is 'client' and no fingerprint, suspicious
+  if (source === 'client' && !hasFingerprint) {
+    reasons.push('no_js_fingerprint')
+    score = Math.max(score, 50)
+  }
+
+  return {
+    isBot: score >= 70,
+    score,
+    reasons
+  }
+}
+
+// Simple boolean check for backwards compatibility
+function isBot(ua: string): boolean {
+  return detectBot(ua, false).isBot
 }
 
 // Parse browser and OS from user agent
@@ -247,11 +362,18 @@ export async function POST(request: NextRequest) {
     const userAgent = user_agent || request.headers.get('user-agent') || ''
     const deviceType = detectDeviceType(userAgent)
     const { browser, os } = parseUserAgent(userAgent)
-    const isBotVisitor = isBot(userAgent)
+
+    // Use comprehensive bot detection with scoring
+    const hasFingerprint = !!fingerprint_id
+    const botDetection = detectBot(userAgent, hasFingerprint, source)
 
     // Log bot detection for monitoring
-    if (isBotVisitor) {
-      console.log('[Track API] Bot detected:', userAgent.substring(0, 100))
+    if (botDetection.isBot) {
+      console.log('[Track API] Bot detected:', {
+        score: botDetection.score,
+        reasons: botDetection.reasons,
+        ua: userAgent.substring(0, 100)
+      })
     }
 
     // Detect channel from referrer and UTM
@@ -289,7 +411,10 @@ export async function POST(request: NextRequest) {
         screen_width,
         screen_height,
         is_returning: is_returning || false,
-        is_bot: isBotVisitor,
+        is_bot: botDetection.isBot,
+        bot_score: botDetection.score,
+        bot_reasons: botDetection.reasons,
+        has_js_execution: hasFingerprint,
         // Geolocation tracking fields
         geolocation_source: geoSource,
         geolocation_accuracy: geoAccuracy,
