@@ -45,6 +45,33 @@ interface ProductVariation {
   meta_data?: Record<string, any>
 }
 
+interface CategoryVariantTemplate {
+  id: string
+  variant_name: string
+  variant_slug: string
+  description?: string
+  conversion_ratio: number
+  conversion_unit?: string
+  display_order?: number
+  icon?: string
+  thumbnail_url?: string
+  featured_image_url?: string
+  pricing_template_id?: string
+  is_active?: boolean
+  share_parent_inventory?: boolean
+  track_separate_inventory?: boolean
+}
+
+interface ProductVariantConfig {
+  id: string
+  variant_template_id: string
+  is_enabled: boolean
+  custom_price?: number
+  custom_conversion_ratio?: number
+  display_order?: number
+  variant_template?: CategoryVariantTemplate
+}
+
 interface PricingTier {
   id: string
   label: string
@@ -100,6 +127,8 @@ export function ProductModal({
   const [variations, setVariations] = useState<ProductVariation[]>([])
   const [pricingTiers, setPricingTiers] = useState<PricingTier[]>([])
   const [categoryFields, setCategoryFields] = useState<VendorProductField[]>([])
+  const [categoryVariants, setCategoryVariants] = useState<CategoryVariantTemplate[]>([])
+  const [productVariantConfigs, setProductVariantConfigs] = useState<ProductVariantConfig[]>([])
 
   // Image upload
   const [isUploadingImage, setIsUploadingImage] = useState(false)
@@ -211,6 +240,36 @@ export function ProductModal({
 
       setVariations(variationsData || [])
 
+      // Load category variant templates if product has a category
+      if (productData.primary_category_id) {
+        const { data: categoryVariantsData } = await supabase
+          .from('category_variant_templates')
+          .select('*')
+          .eq('category_id', productData.primary_category_id)
+          .eq('is_active', true)
+          .order('display_order', { ascending: true })
+
+        setCategoryVariants(categoryVariantsData || [])
+
+        // Load product variant configs (which variants are enabled for this product)
+        const { data: variantConfigsData } = await supabase
+          .from('product_variant_configs')
+          .select(`
+            *,
+            variant_template:variant_template_id (
+              id, variant_name, variant_slug, conversion_ratio, conversion_unit,
+              icon, thumbnail_url, pricing_template_id, is_active
+            )
+          `)
+          .eq('product_id', productId)
+          .order('display_order', { ascending: true })
+
+        setProductVariantConfigs(variantConfigsData || [])
+      } else {
+        setCategoryVariants([])
+        setProductVariantConfigs([])
+      }
+
     } catch (err) {
       console.error('Error loading product details:', err)
     } finally {
@@ -256,6 +315,8 @@ export function ProductModal({
     setVariations([])
     setPricingTiers([])
     setImageGallery([])
+    setCategoryVariants([])
+    setProductVariantConfigs([])
     setActiveTab('overview')
   }
 
@@ -1021,150 +1082,81 @@ export function ProductModal({
               {/* Variations Tab */}
               {activeTab === 'variations' && (
                 <div className="space-y-6">
-                  {/* Product Attributes (options available for variations) */}
-                  {fullProduct?.attributes && Array.isArray(fullProduct.attributes) && fullProduct.attributes.length > 0 && (
-                    <div className="space-y-4">
-                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
-                        Attribute Options
-                      </h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {fullProduct.attributes.map((attr: any, index: number) => (
-                          <div key={index} className="bg-zinc-800/50 rounded border border-zinc-700 p-4">
-                            <div className="text-sm text-white font-medium mb-2">
-                              {attr.name || attr.attribute_name || `Attribute ${index + 1}`}
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                              {(attr.options || attr.values || []).map((opt: string, optIdx: number) => (
-                                <span
-                                  key={optIdx}
-                                  className="px-2 py-1 text-xs bg-zinc-700 text-zinc-300 rounded"
-                                >
-                                  {opt}
-                                </span>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Variations List */}
+                  {/* Category Variant Templates */}
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
-                        Variations
+                        Available Variants
                       </h3>
-                      <span className="text-xs text-zinc-500">
-                        {variations.length} variation{variations.length !== 1 ? 's' : ''}
-                      </span>
+                      {fullProduct?.categories?.name && (
+                        <span className="text-xs text-zinc-500">
+                          From category: {fullProduct.categories.name}
+                        </span>
+                      )}
                     </div>
 
-                    {variations.length === 0 ? (
-                      <div className="text-center py-12 text-zinc-500 bg-zinc-800/30 rounded border border-zinc-800 border-dashed">
-                        <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                        <p className="text-sm">No variations for this product</p>
-                        <p className="text-xs mt-1">This is a simple product without variations</p>
+                    {categoryVariants.length === 0 ? (
+                      <div className="text-center py-8 text-zinc-500 bg-zinc-800/30 rounded border border-zinc-800 border-dashed">
+                        <Layers className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No variant options defined for this category</p>
+                        {!formData.primary_category_id && (
+                          <p className="text-xs mt-1">Select a category to see available variants</p>
+                        )}
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {variations.map((variation, idx) => {
-                          // Handle different attribute formats
-                          const attrs = variation.attributes || {}
-                          const attrEntries = Array.isArray(attrs)
-                            ? attrs.map((a: any) => [a.name || a.attribute, a.option || a.value])
-                            : Object.entries(attrs)
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                        {categoryVariants.map((variant) => {
+                          const config = productVariantConfigs.find(c => c.variant_template_id === variant.id)
+                          const isEnabled = config?.is_enabled !== false
 
                           return (
                             <div
-                              key={variation.id}
-                              className="bg-zinc-800/50 rounded border border-zinc-700 overflow-hidden"
+                              key={variant.id}
+                              className={`relative p-4 rounded border transition-colors ${
+                                isEnabled
+                                  ? 'bg-zinc-800/50 border-zinc-700'
+                                  : 'bg-zinc-900/30 border-zinc-800 opacity-60'
+                              }`}
                             >
-                              <div className="flex items-center gap-4 p-4">
-                                {/* Image */}
-                                <div className="w-14 h-14 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                  {variation.image ? (
-                                    <img src={variation.image} alt="" className="w-full h-full object-cover" />
+                              {/* Variant Icon/Image */}
+                              <div className="flex items-center gap-3 mb-2">
+                                <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                  {variant.thumbnail_url || variant.icon ? (
+                                    <img
+                                      src={variant.thumbnail_url || variant.icon}
+                                      alt={variant.variant_name}
+                                      className="w-full h-full object-cover"
+                                    />
                                   ) : (
-                                    <Package className="w-6 h-6 text-zinc-600" />
+                                    <Package className="w-5 h-5 text-zinc-600" />
                                   )}
                                 </div>
-
-                                {/* Attributes */}
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                                    {attrEntries.length > 0 ? (
-                                      attrEntries.map(([key, value]: [string, any], attrIdx: number) => (
-                                        <span
-                                          key={attrIdx}
-                                          className="px-2 py-0.5 text-xs bg-zinc-700 rounded"
-                                        >
-                                          <span className="text-zinc-400">{key}:</span>{' '}
-                                          <span className="text-white">{String(value)}</span>
-                                        </span>
-                                      ))
-                                    ) : (
-                                      <span className="text-xs text-zinc-500">Variation #{idx + 1}</span>
-                                    )}
-                                  </div>
-                                  {variation.sku && (
-                                    <div className="text-xs text-zinc-500">SKU: {variation.sku}</div>
-                                  )}
-                                </div>
-
-                                {/* Pricing */}
-                                <div className="text-right">
-                                  <div className="text-white font-mono">
-                                    ${(variation.price || variation.regular_price)?.toFixed(2) || '0.00'}
-                                  </div>
-                                  {variation.sale_price && (
-                                    <div className="text-xs text-emerald-400">
-                                      Sale: ${variation.sale_price.toFixed(2)}
-                                    </div>
-                                  )}
-                                  {variation.cost_price && (
-                                    <div className="text-xs text-zinc-500">
-                                      Cost: ${variation.cost_price.toFixed(2)}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* Stock */}
-                                <div className="text-right w-20">
-                                  <div className={`text-sm font-mono ${
-                                    variation.stock_status === 'instock' ? 'text-emerald-400' :
-                                    variation.stock_status === 'outofstock' ? 'text-red-400' : 'text-zinc-400'
-                                  }`}>
-                                    {variation.stock_quantity ?? '-'}
+                                  <div className="text-sm text-white font-medium truncate">
+                                    {variant.variant_name}
                                   </div>
                                   <div className="text-xs text-zinc-500">
-                                    {variation.stock_status === 'instock' ? 'In Stock' :
-                                     variation.stock_status === 'outofstock' ? 'Out of Stock' :
-                                     variation.stock_status === 'onbackorder' ? 'Backorder' :
-                                     variation.stock_status || '-'}
+                                    {variant.conversion_ratio}{variant.conversion_unit || 'g'}
                                   </div>
-                                </div>
-
-                                {/* Status */}
-                                <div className="w-8 flex justify-center">
-                                  {variation.is_active !== false ? (
-                                    <ToggleRight className="w-5 h-5 text-emerald-400" />
-                                  ) : (
-                                    <ToggleLeft className="w-5 h-5 text-zinc-600" />
-                                  )}
                                 </div>
                               </div>
 
-                              {/* Expanded details for variation meta_data */}
-                              {variation.meta_data && Object.keys(variation.meta_data).length > 0 && (
-                                <div className="px-4 pb-3 pt-0">
-                                  <div className="flex flex-wrap gap-2">
-                                    {Object.entries(variation.meta_data).map(([key, value]: [string, any]) => (
-                                      <span key={key} className="text-xs text-zinc-500">
-                                        {key}: {typeof value === 'object' ? JSON.stringify(value) : String(value)}
-                                      </span>
-                                    ))}
-                                  </div>
+                              {/* Status Badge */}
+                              <div className="flex items-center justify-between">
+                                <span className={`text-xs px-2 py-0.5 rounded ${
+                                  isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-zinc-700 text-zinc-500'
+                                }`}>
+                                  {isEnabled ? 'Enabled' : 'Disabled'}
+                                </span>
+                                {variant.track_separate_inventory && (
+                                  <span className="text-xs text-zinc-500">Separate inv.</span>
+                                )}
+                              </div>
+
+                              {/* Custom price if set */}
+                              {config?.custom_price && (
+                                <div className="mt-2 text-xs text-zinc-400">
+                                  Custom: ${config.custom_price.toFixed(2)}
                                 </div>
                               )}
                             </div>
@@ -1174,41 +1166,133 @@ export function ProductModal({
                     )}
                   </div>
 
-                  {/* Default Attributes */}
-                  {fullProduct?.default_attributes && Object.keys(fullProduct.default_attributes).length > 0 && (
+                  {/* Product Variant Configurations */}
+                  {productVariantConfigs.length > 0 && (
                     <div className="space-y-4 pt-4 border-t border-zinc-800">
                       <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
-                        Default Selection
+                        Product Variant Settings
                       </h3>
-                      <div className="flex flex-wrap gap-2">
-                        {(Array.isArray(fullProduct.default_attributes)
-                          ? fullProduct.default_attributes
-                          : Object.entries(fullProduct.default_attributes)
-                        ).map((item: any, idx: number) => {
-                          const name = Array.isArray(item) ? item[0] : (item.name || item.attribute)
-                          const value = Array.isArray(item) ? item[1] : (item.option || item.value)
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-xs text-zinc-500 uppercase tracking-wider">
+                              <th className="pb-2 pr-4">Variant</th>
+                              <th className="pb-2 pr-4">Ratio</th>
+                              <th className="pb-2 pr-4">Custom Price</th>
+                              <th className="pb-2 pr-4">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-zinc-800">
+                            {productVariantConfigs.map((config) => (
+                              <tr key={config.id}>
+                                <td className="py-2 pr-4 text-white">
+                                  {config.variant_template?.variant_name || config.variant_template_id}
+                                </td>
+                                <td className="py-2 pr-4 text-zinc-400">
+                                  {config.custom_conversion_ratio || config.variant_template?.conversion_ratio || '-'}
+                                  {config.variant_template?.conversion_unit || 'g'}
+                                </td>
+                                <td className="py-2 pr-4 text-zinc-400 font-mono">
+                                  {config.custom_price ? `$${config.custom_price.toFixed(2)}` : '-'}
+                                </td>
+                                <td className="py-2 pr-4">
+                                  {config.is_enabled !== false ? (
+                                    <span className="text-emerald-400 text-xs">Active</span>
+                                  ) : (
+                                    <span className="text-zinc-500 text-xs">Inactive</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Legacy Product Variations (from product_variations table) */}
+                  {variations.length > 0 && (
+                    <div className="space-y-4 pt-4 border-t border-zinc-800">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                          Product Variations
+                        </h3>
+                        <span className="text-xs text-zinc-500">
+                          {variations.length} variation{variations.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {variations.map((variation, idx) => {
+                          const attrs = variation.attributes || {}
+                          const attrEntries = Array.isArray(attrs)
+                            ? attrs.map((a: any) => [a.name || a.attribute, a.option || a.value])
+                            : Object.entries(attrs)
+
                           return (
-                            <span key={idx} className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded">
-                              <span className="text-zinc-400">{name}:</span>{' '}
-                              <span className="text-white">{String(value)}</span>
-                            </span>
+                            <div
+                              key={variation.id}
+                              className="flex items-center gap-4 p-3 bg-zinc-800/50 rounded border border-zinc-700"
+                            >
+                              <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                {variation.image ? (
+                                  <img src={variation.image} alt="" className="w-full h-full object-cover" />
+                                ) : (
+                                  <Package className="w-5 h-5 text-zinc-600" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {attrEntries.length > 0 ? (
+                                    attrEntries.map(([key, value]: [string, any], attrIdx: number) => (
+                                      <span key={attrIdx} className="px-2 py-0.5 text-xs bg-zinc-700 rounded">
+                                        <span className="text-zinc-400">{key}:</span>{' '}
+                                        <span className="text-white">{String(value)}</span>
+                                      </span>
+                                    ))
+                                  ) : (
+                                    <span className="text-xs text-zinc-500">Variation #{idx + 1}</span>
+                                  )}
+                                </div>
+                                {variation.sku && (
+                                  <div className="text-xs text-zinc-500 mt-1">SKU: {variation.sku}</div>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-white font-mono text-sm">
+                                  ${(variation.price || variation.regular_price)?.toFixed(2) || '0.00'}
+                                </div>
+                              </div>
+                              <div className="text-right w-16">
+                                <div className={`text-sm ${
+                                  variation.stock_status === 'instock' ? 'text-emerald-400' : 'text-zinc-500'
+                                }`}>
+                                  {variation.stock_quantity ?? '-'}
+                                </div>
+                              </div>
+                              <div className="w-6">
+                                {variation.is_active !== false ? (
+                                  <ToggleRight className="w-5 h-5 text-emerald-400" />
+                                ) : (
+                                  <ToggleLeft className="w-5 h-5 text-zinc-600" />
+                                )}
+                              </div>
+                            </div>
                           )
                         })}
                       </div>
                     </div>
                   )}
 
-                  {/* Debug: Raw attributes data */}
-                  {mode !== 'create' && fullProduct?.attributes && (
-                    <div className="pt-4 border-t border-zinc-800">
-                      <details className="text-xs">
-                        <summary className="text-zinc-500 cursor-pointer hover:text-zinc-400">
-                          View Raw Attributes Data
-                        </summary>
-                        <pre className="mt-2 p-3 bg-zinc-800/50 rounded text-zinc-400 overflow-x-auto">
-                          {JSON.stringify(fullProduct.attributes, null, 2)}
-                        </pre>
-                      </details>
+                  {/* No variants at all */}
+                  {categoryVariants.length === 0 && variations.length === 0 && productVariantConfigs.length === 0 && (
+                    <div className="text-center py-12 text-zinc-500">
+                      <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                      <p className="text-sm">No variants configured</p>
+                      <p className="text-xs mt-1">
+                        {formData.primary_category_id
+                          ? 'This category has no variant templates defined'
+                          : 'Select a category to see available variant options'}
+                      </p>
                     </div>
                   )}
                 </div>
