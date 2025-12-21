@@ -602,7 +602,7 @@ export default function MapDashboardPage() {
               // Get city coordinates for the aggregate marker
               let coords = getCityCoordinates(city, state)
               if (!coords && visitor.latitude && visitor.longitude) {
-                coords = { lat: visitor.latitude, lng: visitor.longitude }
+                coords = { lat: visitor.latitude, lng: visitor.longitude, confidence: 'low' as const }
               }
               if (coords) {
                 cityAggregates.set(cityKey, { count: 0, city, state, lat: coords.lat, lng: coords.lng })
