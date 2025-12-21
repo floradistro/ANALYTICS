@@ -50,6 +50,23 @@ function detectChannel(referrer: string | null, utmSource?: string, utmMedium?: 
   return 'referral'
 }
 
+// Detect if user agent is a bot/crawler
+function isBot(ua: string): boolean {
+  const botPatterns = [
+    /bot/i, /crawler/i, /spider/i, /crawling/i,
+    /SentryUptimeBot/i, /facebookexternalhit/i, /AhrefsBot/i,
+    /vercel-screenshot/i, /vercel-favicon/i, /EasyPost/i,
+    /Go-http-client/i, /WordPress/i, /ChatGPT-User/i,
+    /meta-externalagent/i, /Googlebot/i, /bingbot/i,
+    /YandexBot/i, /DuckDuckBot/i, /Slackbot/i,
+    /Twitterbot/i, /LinkedInBot/i, /WhatsApp/i,
+    /Discordbot/i, /TelegramBot/i, /Applebot/i,
+    /PingdomBot/i, /UptimeRobot/i, /StatusCake/i,
+    /HeadlessChrome/i, /PhantomJS/i, /Lighthouse/i,
+  ]
+  return botPatterns.some(pattern => pattern.test(ua))
+}
+
 // Parse browser and OS from user agent
 function parseUserAgent(ua: string): { browser: string; os: string } {
   const uaLower = ua.toLowerCase()
@@ -230,6 +247,12 @@ export async function POST(request: NextRequest) {
     const userAgent = user_agent || request.headers.get('user-agent') || ''
     const deviceType = detectDeviceType(userAgent)
     const { browser, os } = parseUserAgent(userAgent)
+    const isBotVisitor = isBot(userAgent)
+
+    // Log bot detection for monitoring
+    if (isBotVisitor) {
+      console.log('[Track API] Bot detected:', userAgent.substring(0, 100))
+    }
 
     // Detect channel from referrer and UTM
     const channel = detectChannel(referrer, utm_source, utm_medium)
@@ -266,6 +289,7 @@ export async function POST(request: NextRequest) {
         screen_width,
         screen_height,
         is_returning: is_returning || false,
+        is_bot: isBotVisitor,
         // Geolocation tracking fields
         geolocation_source: geoSource,
         geolocation_accuracy: geoAccuracy,

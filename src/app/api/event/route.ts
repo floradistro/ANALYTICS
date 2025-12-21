@@ -76,6 +76,64 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to track event' }, { status: 500, headers: corsHeaders })
     }
 
+    // Link fingerprint to customer on purchase events
+    if (event_name === 'purchase' && fingerprint_id && event_data?.customerId) {
+      const customerId = event_data.customerId
+      console.log('[Event API] Linking fingerprint to customer:', { fingerprint_id, customerId })
+
+      // Check if link already exists
+      const { data: existingLink } = await supabase
+        .from('fingerprint_customer_links')
+        .select('id')
+        .eq('fingerprint_id', fingerprint_id)
+        .eq('customer_id', customerId)
+        .eq('vendor_id', vendor_id)
+        .single()
+
+      if (!existingLink) {
+        const { error: linkError } = await supabase
+          .from('fingerprint_customer_links')
+          .insert({
+            fingerprint_id,
+            customer_id: customerId,
+            vendor_id,
+            link_source: 'purchase',
+            confidence: 'high',
+          })
+
+        if (linkError) {
+          console.error('[Event API] Failed to link fingerprint to customer:', linkError)
+        } else {
+          console.log('[Event API] Successfully linked fingerprint to customer')
+        }
+      }
+    }
+
+    // Also link on checkout_success events
+    if (event_name === 'checkout_success' && fingerprint_id && event_data?.customerId) {
+      const customerId = event_data.customerId
+
+      const { data: existingLink } = await supabase
+        .from('fingerprint_customer_links')
+        .select('id')
+        .eq('fingerprint_id', fingerprint_id)
+        .eq('customer_id', customerId)
+        .eq('vendor_id', vendor_id)
+        .single()
+
+      if (!existingLink) {
+        await supabase
+          .from('fingerprint_customer_links')
+          .insert({
+            fingerprint_id,
+            customer_id: customerId,
+            vendor_id,
+            link_source: 'checkout_success',
+            confidence: 'high',
+          })
+      }
+    }
+
     return NextResponse.json({ success: true, event: event_name }, { headers: corsHeaders })
   } catch (err) {
     console.error('Event API error:', err)

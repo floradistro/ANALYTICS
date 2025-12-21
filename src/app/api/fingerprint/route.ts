@@ -41,9 +41,26 @@ export async function POST(request: NextRequest) {
     console.log('[Fingerprint API] Received fingerprint:', {
       vendor_id,
       visitor_id,
+      session_id,
       fingerprint_id,
       confidence: fingerprint_confidence
     })
+
+    // CRITICAL: Update website_visitors with fingerprint_id
+    // This links the anonymous visitor session to the device fingerprint
+    if (visitor_id || session_id) {
+      const { error: visitorUpdateError } = await supabase
+        .from('website_visitors')
+        .update({ fingerprint_id })
+        .eq('vendor_id', vendor_id)
+        .or(`visitor_id.eq.${visitor_id},session_id.eq.${session_id}`)
+
+      if (visitorUpdateError) {
+        console.error('[Fingerprint API] Failed to link fingerprint to visitor:', visitorUpdateError)
+      } else {
+        console.log('[Fingerprint API] Linked fingerprint to visitor:', { visitor_id, session_id, fingerprint_id })
+      }
+    }
 
     // Check if fingerprint already exists
     const { data: existing } = await supabase
