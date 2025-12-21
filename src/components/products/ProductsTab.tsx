@@ -256,7 +256,11 @@ export function ProductsTab() {
                 </tr>
               ) : (
                 products.map((product) => (
-                  <tr key={product.id} className="hover:bg-zinc-900/50">
+                  <tr
+                    key={product.id}
+                    className="hover:bg-zinc-900/50 cursor-pointer"
+                    onClick={() => setModalState({ isOpen: true, mode: 'edit', product })}
+                  >
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         {product.featured_image ? (
@@ -291,7 +295,7 @@ export function ProductsTab() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-center">{getStatusBadge(product.status)}</td>
-                    <td className="px-4 py-3 text-center">
+                    <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-center gap-1">
                         <button
                           onClick={() => setModalState({ isOpen: true, mode: 'edit', product })}
