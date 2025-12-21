@@ -1,6 +1,59 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 
+// Build landing_page object from database row (individual columns)
+function buildLandingPageFromRow(row: any) {
+  const type = row.type || 'product'
+
+  // Build CTA buttons based on stored values
+  const ctaButtons: any[] = []
+
+  if (row.landing_page_cta_text) {
+    ctaButtons.push({
+      label: row.landing_page_cta_text,
+      action: row.landing_page_cta_url ? 'url' : (type === 'product' ? 'coa' : 'url'),
+      url: row.landing_page_cta_url || undefined,
+      style: 'primary'
+    })
+  }
+
+  // Add default secondary button based on type
+  if (type === 'product') {
+    ctaButtons.push({ label: 'Shop Online', action: 'shop', style: 'secondary' })
+  } else if (type === 'order') {
+    ctaButtons.push({ label: 'Contact Support', action: 'support', style: 'secondary' })
+  }
+
+  // Default buttons if none exist
+  if (ctaButtons.length === 0) {
+    if (type === 'product') {
+      ctaButtons.push(
+        { label: 'View Lab Results', action: 'coa', style: 'primary' },
+        { label: 'Shop Online', action: 'shop', style: 'secondary' }
+      )
+    } else if (type === 'order') {
+      ctaButtons.push(
+        { label: 'Track Order', action: 'track', style: 'primary' },
+        { label: 'Contact Support', action: 'support', style: 'secondary' }
+      )
+    } else {
+      ctaButtons.push({ label: 'Learn More', action: 'url', url: '', style: 'primary' })
+    }
+  }
+
+  return {
+    title: row.landing_page_title || row.name || 'Welcome',
+    description: row.landing_page_description || '',
+    theme: row.landing_page_theme || 'dark',
+    image_url: row.landing_page_image_url || undefined,
+    show_product_info: type === 'product',
+    show_coa: type === 'product',
+    show_order_status: type === 'order',
+    show_tracking: type === 'order',
+    cta_buttons: ctaButtons
+  }
+}
+
 // GET - Fetch QR analytics stats
 export async function GET(request: NextRequest) {
   const supabase = createServerClient()
@@ -19,10 +72,10 @@ export async function GET(request: NextRequest) {
   startDate.setDate(startDate.getDate() - days)
 
   try {
-    // Get QR code summary stats
+    // Get QR code summary stats (including landing page columns)
     let qrQuery = supabase
       .from('qr_codes')
-      .select('id, code, type, name, total_scans, unique_scans, is_active, created_at, last_scanned_at')
+      .select('id, code, type, name, total_scans, unique_scans, is_active, created_at, last_scanned_at, landing_page_title, landing_page_description, landing_page_image_url, landing_page_cta_text, landing_page_cta_url, landing_page_theme')
       .eq('vendor_id', vendorId)
 
     if (qrCodeId) {
@@ -171,7 +224,8 @@ export async function GET(request: NextRequest) {
         total_scans: qr.total_scans,
         unique_scans: qr.unique_scans,
         is_active: qr.is_active,
-        last_scanned_at: qr.last_scanned_at
+        last_scanned_at: qr.last_scanned_at,
+        landing_page: buildLandingPageFromRow(qr)
       })) || []
     })
   } catch (err) {

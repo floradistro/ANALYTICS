@@ -36,9 +36,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to fetch QR codes' }, { status: 500 })
   }
 
+  // Build landing_page objects for each QR code
+  const qrCodesWithLanding = (data || []).map((row: any) => ({
+    ...row,
+    landing_page: buildLandingPageFromRow(row)
+  }))
+
   return NextResponse.json({
     success: true,
-    qr_codes: data || [],
+    qr_codes: qrCodesWithLanding,
     total: count || 0,
     limit,
     offset
@@ -59,7 +65,7 @@ export async function POST(request: NextRequest) {
       product_id,
       order_id,
       campaign_name,
-      // Landing page configuration
+      // Landing page configuration (will be converted to individual columns)
       landing_page
     } = body
 
@@ -82,6 +88,10 @@ export async function POST(request: NextRequest) {
     const randomPart = Math.random().toString(36).substring(2, 10).toUpperCase()
     const code = `${prefix}${randomPart}`
 
+    // Get default landing page config
+    const defaultLanding = getDefaultLandingPage(type)
+    const lp = landing_page || defaultLanding
+
     const qrData: any = {
       vendor_id,
       code,
@@ -90,7 +100,14 @@ export async function POST(request: NextRequest) {
       is_active: true,
       total_scans: 0,
       unique_scans: 0,
-      landing_page: landing_page || getDefaultLandingPage(type),
+      destination_url: `https://floradistro.com/qr/${code}`,
+      // Landing page individual columns
+      landing_page_title: lp.title || name,
+      landing_page_description: lp.description || null,
+      landing_page_image_url: lp.image_url || null,
+      landing_page_cta_text: lp.cta_buttons?.[0]?.label || null,
+      landing_page_cta_url: lp.cta_buttons?.[0]?.url || null,
+      landing_page_theme: lp.theme || 'dark',
       created_at: new Date().toISOString()
     }
 
@@ -116,7 +133,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create QR code' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, qr_code: data })
+    // Build landing_page object for response
+    const responseData = {
+      ...data,
+      landing_page: buildLandingPageFromRow(data)
+    }
+
+    return NextResponse.json({ success: true, qr_code: responseData })
   } catch (err) {
     console.error('Error parsing request:', err)
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
@@ -129,7 +152,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { id, vendor_id, ...updates } = body
+    const { id, vendor_id, landing_page, ...updates } = body
 
     if (!id || !vendor_id) {
       return NextResponse.json(
@@ -138,25 +161,40 @@ export async function PATCH(request: NextRequest) {
       )
     }
 
-    // Only allow updating specific fields
-    const allowedFields = ['name', 'is_active', 'campaign_name', 'landing_page', 'expires_at', 'max_scans']
-    const filteredUpdates: Record<string, any> = {}
+    // Build updates object
+    const dbUpdates: Record<string, any> = {}
 
+    // Handle simple fields
+    const allowedFields = ['name', 'is_active', 'campaign_name', 'expires_at', 'max_scans']
     for (const field of allowedFields) {
       if (updates[field] !== undefined) {
-        filteredUpdates[field] = updates[field]
+        dbUpdates[field] = updates[field]
       }
     }
 
-    if (Object.keys(filteredUpdates).length === 0) {
+    // Handle landing_page object - convert to individual columns
+    if (landing_page) {
+      if (landing_page.title !== undefined) dbUpdates.landing_page_title = landing_page.title
+      if (landing_page.description !== undefined) dbUpdates.landing_page_description = landing_page.description
+      if (landing_page.image_url !== undefined) dbUpdates.landing_page_image_url = landing_page.image_url
+      if (landing_page.theme !== undefined) dbUpdates.landing_page_theme = landing_page.theme
+      // Extract CTA from buttons array
+      if (landing_page.cta_buttons && landing_page.cta_buttons.length > 0) {
+        const primaryBtn = landing_page.cta_buttons[0]
+        dbUpdates.landing_page_cta_text = primaryBtn.label || null
+        dbUpdates.landing_page_cta_url = primaryBtn.url || null
+      }
+    }
+
+    if (Object.keys(dbUpdates).length === 0) {
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
     }
 
-    filteredUpdates.updated_at = new Date().toISOString()
+    dbUpdates.updated_at = new Date().toISOString()
 
     const { data, error } = await supabase
       .from('qr_codes')
-      .update(filteredUpdates)
+      .update(dbUpdates)
       .eq('id', id)
       .eq('vendor_id', vendor_id)
       .select()
@@ -167,7 +205,13 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to update QR code' }, { status: 500 })
     }
 
-    return NextResponse.json({ success: true, qr_code: data })
+    // Build landing_page object for response
+    const responseData = {
+      ...data,
+      landing_page: buildLandingPageFromRow(data)
+    }
+
+    return NextResponse.json({ success: true, qr_code: responseData })
   } catch (err) {
     console.error('Error parsing request:', err)
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
@@ -201,6 +245,48 @@ export async function DELETE(request: NextRequest) {
   }
 
   return NextResponse.json({ success: true })
+}
+
+// Build landing_page object from database row (individual columns)
+function buildLandingPageFromRow(row: any) {
+  const type = row.type || 'product'
+  const defaultConfig = getDefaultLandingPage(type)
+
+  // Build CTA buttons based on stored values
+  const ctaButtons: any[] = []
+
+  if (row.landing_page_cta_text) {
+    ctaButtons.push({
+      label: row.landing_page_cta_text,
+      action: row.landing_page_cta_url ? 'url' : (type === 'product' ? 'coa' : 'url'),
+      url: row.landing_page_cta_url || undefined,
+      style: 'primary'
+    })
+  }
+
+  // Add default secondary button based on type
+  if (type === 'product') {
+    ctaButtons.push({ label: 'Shop Online', action: 'shop', style: 'secondary' })
+  } else if (type === 'order') {
+    ctaButtons.push({ label: 'Contact Support', action: 'support', style: 'secondary' })
+  }
+
+  // If no buttons were added, use defaults
+  if (ctaButtons.length === 0) {
+    ctaButtons.push(...defaultConfig.cta_buttons)
+  }
+
+  return {
+    title: row.landing_page_title || row.name || defaultConfig.title,
+    description: row.landing_page_description || defaultConfig.description,
+    theme: row.landing_page_theme || 'dark',
+    image_url: row.landing_page_image_url || undefined,
+    show_product_info: type === 'product',
+    show_coa: type === 'product',
+    show_order_status: type === 'order',
+    show_tracking: type === 'order',
+    cta_buttons: ctaButtons
+  }
 }
 
 // Default landing page configurations by type
