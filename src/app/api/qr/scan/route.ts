@@ -165,6 +165,37 @@ export async function POST(request: NextRequest) {
       .update(updateData)
       .eq('id', qrCode.id)
 
+    // Build landing page config from individual columns
+    const landingPage = {
+      title: qrCode.landing_page_title || qrCode.name,
+      description: qrCode.landing_page_description || '',
+      theme: qrCode.landing_page_theme || 'dark',
+      image_url: qrCode.landing_page_image_url,
+      cta_text: qrCode.landing_page_cta_text,
+      cta_url: qrCode.landing_page_cta_url,
+      show_product_info: qrCode.type === 'product',
+      show_coa: qrCode.type === 'product',
+      cta_buttons: qrCode.landing_page_cta_text ? [
+        {
+          label: qrCode.landing_page_cta_text,
+          action: qrCode.landing_page_cta_url ? 'url' : 'coa',
+          url: qrCode.landing_page_cta_url,
+          style: 'primary'
+        },
+        {
+          label: 'Shop Online',
+          action: 'shop',
+          style: 'secondary'
+        }
+      ] : [
+        {
+          label: 'Shop Online',
+          action: 'shop',
+          style: 'primary'
+        }
+      ]
+    }
+
     // Return QR code data for landing page
     return NextResponse.json({
       success: true,
@@ -178,7 +209,7 @@ export async function POST(request: NextRequest) {
         product_id: qrCode.product_id,
         order_id: qrCode.order_id,
         campaign_name: qrCode.campaign_name,
-        landing_page: qrCode.landing_page
+        landing_page: landingPage
       }
     })
   } catch (err) {
@@ -219,6 +250,37 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'QR code not found' }, { status: 404 })
   }
 
+  // Build landing page config from individual columns
+  const landingPage = {
+    title: qrCode.landing_page_title || qrCode.name,
+    description: qrCode.landing_page_description || '',
+    theme: qrCode.landing_page_theme || 'dark',
+    image_url: qrCode.landing_page_image_url,
+    cta_text: qrCode.landing_page_cta_text,
+    cta_url: qrCode.landing_page_cta_url,
+    show_product_info: qrCode.type === 'product',
+    show_coa: qrCode.type === 'product',
+    cta_buttons: qrCode.landing_page_cta_text ? [
+      {
+        label: qrCode.landing_page_cta_text,
+        action: qrCode.landing_page_cta_url ? 'url' : 'coa',
+        url: qrCode.landing_page_cta_url,
+        style: 'primary'
+      },
+      {
+        label: 'Shop Online',
+        action: 'shop',
+        style: 'secondary'
+      }
+    ] : [
+      {
+        label: 'Shop Online',
+        action: 'shop',
+        style: 'primary'
+      }
+    ]
+  }
+
   return NextResponse.json({
     success: true,
     qr_code: {
@@ -229,7 +291,7 @@ export async function GET(request: NextRequest) {
       product_id: qrCode.product_id,
       order_id: qrCode.order_id,
       campaign_name: qrCode.campaign_name,
-      landing_page: qrCode.landing_page,
+      landing_page: landingPage,
       is_active: qrCode.is_active,
       total_scans: qrCode.total_scans,
       unique_scans: qrCode.unique_scans

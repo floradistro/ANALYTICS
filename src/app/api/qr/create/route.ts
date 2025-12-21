@@ -35,12 +35,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Check if QR code already exists
+    // Check if QR code already exists (code is globally unique)
     const { data: existing } = await supabase
       .from('qr_codes')
-      .select('id, code')
+      .select('id, code, name, type, destination_url')
       .eq('code', code)
-      .eq('vendor_id', vendor_id)
       .maybeSingle()
 
     if (existing) {
@@ -66,31 +65,33 @@ export async function POST(request: NextRequest) {
       else if (code.startsWith('M') || code.startsWith('C')) qrType = 'marketing'
     }
 
-    // Build landing page config
-    const landingPage = buildLandingPage(qrType, {
-      title: landing_page_title || name,
-      description: landing_page_description,
-      image_url: landing_page_image_url,
-      cta_text: landing_page_cta_text,
-      cta_url: landing_page_cta_url || destination_url
-    })
-
-    // Create QR code
+    // Create QR code with existing table structure
     const qrData: any = {
       vendor_id,
       code,
       name,
       type: qrType,
+      destination_url: destination_url || `https://floradistro.com/qr/${code}`,
       is_active: true,
       total_scans: 0,
       unique_scans: 0,
-      landing_page: landingPage,
+      // Landing page individual columns
+      landing_page_title: landing_page_title || name,
+      landing_page_description: landing_page_description || null,
+      landing_page_image_url: landing_page_image_url || null,
+      landing_page_cta_text: landing_page_cta_text || (qrType === 'product' ? 'View Lab Results' : 'Learn More'),
+      landing_page_cta_url: landing_page_cta_url || destination_url || null,
+      landing_page_theme: 'dark',
+      logo_url: logo_url || null,
+      brand_color: brand_color || null,
       created_at: new Date().toISOString()
     }
 
     if (product_id) qrData.product_id = product_id
     if (order_id) qrData.order_id = order_id
+    if (location_id) qrData.location_id = location_id
     if (campaign_name) qrData.campaign_name = campaign_name
+    if (tags) qrData.tags = tags
 
     const { data, error } = await supabase
       .from('qr_codes')
@@ -113,7 +114,7 @@ export async function POST(request: NextRequest) {
         code: data.code,
         name: data.name,
         type: data.type,
-        destination_url,
+        destination_url: data.destination_url,
         tracking_url: `https://floradistro.com/qr/${code}`
       }
     })
@@ -123,75 +124,5 @@ export async function POST(request: NextRequest) {
       { success: false, error: 'Invalid request body' },
       { status: 400 }
     )
-  }
-}
-
-function buildLandingPage(type: string, config: {
-  title?: string
-  description?: string
-  image_url?: string
-  cta_text?: string
-  cta_url?: string
-}) {
-  const baseConfig = {
-    title: config.title || 'Welcome',
-    description: config.description || '',
-    theme: 'dark' as const,
-    cta_buttons: [] as any[]
-  }
-
-  switch (type) {
-    case 'product':
-      return {
-        ...baseConfig,
-        show_product_info: true,
-        show_coa: true,
-        image_url: config.image_url,
-        cta_buttons: [
-          {
-            label: config.cta_text || 'View Lab Results',
-            action: config.cta_url ? 'url' : 'coa',
-            url: config.cta_url,
-            style: 'primary'
-          },
-          {
-            label: 'Shop Online',
-            action: 'shop',
-            style: 'secondary'
-          }
-        ]
-      }
-    case 'order':
-      return {
-        ...baseConfig,
-        show_order_status: true,
-        show_tracking: true,
-        cta_buttons: [
-          {
-            label: config.cta_text || 'Track Order',
-            action: 'track',
-            style: 'primary'
-          },
-          {
-            label: 'Contact Support',
-            action: 'support',
-            style: 'secondary'
-          }
-        ]
-      }
-    case 'marketing':
-    default:
-      return {
-        ...baseConfig,
-        image_url: config.image_url,
-        cta_buttons: config.cta_url ? [
-          {
-            label: config.cta_text || 'Learn More',
-            action: 'url',
-            url: config.cta_url,
-            style: 'primary'
-          }
-        ] : []
-      }
   }
 }
