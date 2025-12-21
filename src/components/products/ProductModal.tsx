@@ -33,14 +33,16 @@ import { supabase } from '@/lib/supabase'
 interface ProductVariation {
   id: string
   sku?: string
-  attributes: Record<string, string>
+  attributes: Record<string, string> | Array<{ name?: string; attribute?: string; option?: string; value?: string }>
   regular_price?: number
   sale_price?: number
   cost_price?: number
+  price?: number
   stock_quantity?: number
   stock_status?: string
   image?: string
   is_active?: boolean
+  meta_data?: Record<string, any>
 }
 
 interface PricingTier {
@@ -200,18 +202,14 @@ export function ProductModal({
         setPricingTiers([])
       }
 
-      // Load variations if has_variations is true
-      if (productData.has_variations) {
-        const { data: variationsData } = await supabase
-          .from('product_variations')
-          .select('*')
-          .eq('parent_product_id', productId)
-          .order('created_at', { ascending: true })
+      // Always try to load variations
+      const { data: variationsData } = await supabase
+        .from('product_variations')
+        .select('*')
+        .eq('parent_product_id', productId)
+        .order('created_at', { ascending: true })
 
-        setVariations(variationsData || [])
-      } else {
-        setVariations([])
-      }
+      setVariations(variationsData || [])
 
     } catch (err) {
       console.error('Error loading product details:', err)
@@ -1023,86 +1021,194 @@ export function ProductModal({
               {/* Variations Tab */}
               {activeTab === 'variations' && (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
-                      Product Variations
-                    </h3>
-                    <span className="text-xs text-zinc-500">
-                      {variations.length} variation{variations.length !== 1 ? 's' : ''}
-                    </span>
-                  </div>
-
-                  {variations.length === 0 ? (
-                    <div className="text-center py-12 text-zinc-500 bg-zinc-800/30 rounded border border-zinc-800 border-dashed">
-                      <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">No variations for this product</p>
-                      <p className="text-xs mt-1">This is a simple product without variations</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {variations.map((variation) => (
-                        <div
-                          key={variation.id}
-                          className="flex items-center gap-4 p-4 bg-zinc-800/50 rounded border border-zinc-700"
-                        >
-                          {/* Image */}
-                          <div className="w-12 h-12 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                            {variation.image ? (
-                              <img src={variation.image} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <Package className="w-5 h-5 text-zinc-600" />
-                            )}
-                          </div>
-
-                          {/* Attributes */}
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              {Object.entries(variation.attributes || {}).map(([key, value]) => (
+                  {/* Product Attributes (options available for variations) */}
+                  {fullProduct?.attributes && Array.isArray(fullProduct.attributes) && fullProduct.attributes.length > 0 && (
+                    <div className="space-y-4">
+                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                        Attribute Options
+                      </h3>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {fullProduct.attributes.map((attr: any, index: number) => (
+                          <div key={index} className="bg-zinc-800/50 rounded border border-zinc-700 p-4">
+                            <div className="text-sm text-white font-medium mb-2">
+                              {attr.name || attr.attribute_name || `Attribute ${index + 1}`}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {(attr.options || attr.values || []).map((opt: string, optIdx: number) => (
                                 <span
-                                  key={key}
-                                  className="px-2 py-0.5 text-xs bg-zinc-700 rounded"
+                                  key={optIdx}
+                                  className="px-2 py-1 text-xs bg-zinc-700 text-zinc-300 rounded"
                                 >
-                                  {key}: <span className="text-white">{value}</span>
+                                  {opt}
                                 </span>
                               ))}
                             </div>
-                            {variation.sku && (
-                              <div className="text-xs text-zinc-500 mt-1">SKU: {variation.sku}</div>
-                            )}
                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
-                          {/* Pricing */}
-                          <div className="text-right">
-                            <div className="text-white font-mono">
-                              ${variation.regular_price?.toFixed(2) || '0.00'}
-                            </div>
-                            {variation.sale_price && (
-                              <div className="text-xs text-emerald-400">
-                                Sale: ${variation.sale_price.toFixed(2)}
+                  {/* Variations List */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                        Variations
+                      </h3>
+                      <span className="text-xs text-zinc-500">
+                        {variations.length} variation{variations.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+
+                    {variations.length === 0 ? (
+                      <div className="text-center py-12 text-zinc-500 bg-zinc-800/30 rounded border border-zinc-800 border-dashed">
+                        <Layers className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                        <p className="text-sm">No variations for this product</p>
+                        <p className="text-xs mt-1">This is a simple product without variations</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {variations.map((variation, idx) => {
+                          // Handle different attribute formats
+                          const attrs = variation.attributes || {}
+                          const attrEntries = Array.isArray(attrs)
+                            ? attrs.map((a: any) => [a.name || a.attribute, a.option || a.value])
+                            : Object.entries(attrs)
+
+                          return (
+                            <div
+                              key={variation.id}
+                              className="bg-zinc-800/50 rounded border border-zinc-700 overflow-hidden"
+                            >
+                              <div className="flex items-center gap-4 p-4">
+                                {/* Image */}
+                                <div className="w-14 h-14 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
+                                  {variation.image ? (
+                                    <img src={variation.image} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <Package className="w-6 h-6 text-zinc-600" />
+                                  )}
+                                </div>
+
+                                {/* Attributes */}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                                    {attrEntries.length > 0 ? (
+                                      attrEntries.map(([key, value]: [string, any], attrIdx: number) => (
+                                        <span
+                                          key={attrIdx}
+                                          className="px-2 py-0.5 text-xs bg-zinc-700 rounded"
+                                        >
+                                          <span className="text-zinc-400">{key}:</span>{' '}
+                                          <span className="text-white">{String(value)}</span>
+                                        </span>
+                                      ))
+                                    ) : (
+                                      <span className="text-xs text-zinc-500">Variation #{idx + 1}</span>
+                                    )}
+                                  </div>
+                                  {variation.sku && (
+                                    <div className="text-xs text-zinc-500">SKU: {variation.sku}</div>
+                                  )}
+                                </div>
+
+                                {/* Pricing */}
+                                <div className="text-right">
+                                  <div className="text-white font-mono">
+                                    ${(variation.price || variation.regular_price)?.toFixed(2) || '0.00'}
+                                  </div>
+                                  {variation.sale_price && (
+                                    <div className="text-xs text-emerald-400">
+                                      Sale: ${variation.sale_price.toFixed(2)}
+                                    </div>
+                                  )}
+                                  {variation.cost_price && (
+                                    <div className="text-xs text-zinc-500">
+                                      Cost: ${variation.cost_price.toFixed(2)}
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Stock */}
+                                <div className="text-right w-20">
+                                  <div className={`text-sm font-mono ${
+                                    variation.stock_status === 'instock' ? 'text-emerald-400' :
+                                    variation.stock_status === 'outofstock' ? 'text-red-400' : 'text-zinc-400'
+                                  }`}>
+                                    {variation.stock_quantity ?? '-'}
+                                  </div>
+                                  <div className="text-xs text-zinc-500">
+                                    {variation.stock_status === 'instock' ? 'In Stock' :
+                                     variation.stock_status === 'outofstock' ? 'Out of Stock' :
+                                     variation.stock_status === 'onbackorder' ? 'Backorder' :
+                                     variation.stock_status || '-'}
+                                  </div>
+                                </div>
+
+                                {/* Status */}
+                                <div className="w-8 flex justify-center">
+                                  {variation.is_active !== false ? (
+                                    <ToggleRight className="w-5 h-5 text-emerald-400" />
+                                  ) : (
+                                    <ToggleLeft className="w-5 h-5 text-zinc-600" />
+                                  )}
+                                </div>
                               </div>
-                            )}
-                          </div>
 
-                          {/* Stock */}
-                          <div className="text-right w-20">
-                            <div className={`text-sm ${variation.stock_status === 'instock' ? 'text-emerald-400' : 'text-red-400'}`}>
-                              {variation.stock_quantity ?? '-'}
+                              {/* Expanded details for variation meta_data */}
+                              {variation.meta_data && Object.keys(variation.meta_data).length > 0 && (
+                                <div className="px-4 pb-3 pt-0">
+                                  <div className="flex flex-wrap gap-2">
+                                    {Object.entries(variation.meta_data).map(([key, value]: [string, any]) => (
+                                      <span key={key} className="text-xs text-zinc-500">
+                                        {key}: {typeof value === 'object' ? JSON.stringify(value) : String(value)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                            <div className="text-xs text-zinc-500">
-                              {variation.stock_status || 'unknown'}
-                            </div>
-                          </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
 
-                          {/* Status */}
-                          <div className="w-8 flex justify-center">
-                            {variation.is_active ? (
-                              <ToggleRight className="w-5 h-5 text-emerald-400" />
-                            ) : (
-                              <ToggleLeft className="w-5 h-5 text-zinc-600" />
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                  {/* Default Attributes */}
+                  {fullProduct?.default_attributes && Object.keys(fullProduct.default_attributes).length > 0 && (
+                    <div className="space-y-4 pt-4 border-t border-zinc-800">
+                      <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
+                        Default Selection
+                      </h3>
+                      <div className="flex flex-wrap gap-2">
+                        {(Array.isArray(fullProduct.default_attributes)
+                          ? fullProduct.default_attributes
+                          : Object.entries(fullProduct.default_attributes)
+                        ).map((item: any, idx: number) => {
+                          const name = Array.isArray(item) ? item[0] : (item.name || item.attribute)
+                          const value = Array.isArray(item) ? item[1] : (item.option || item.value)
+                          return (
+                            <span key={idx} className="px-3 py-1.5 text-sm bg-zinc-800 border border-zinc-700 rounded">
+                              <span className="text-zinc-400">{name}:</span>{' '}
+                              <span className="text-white">{String(value)}</span>
+                            </span>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Debug: Raw attributes data */}
+                  {mode !== 'create' && fullProduct?.attributes && (
+                    <div className="pt-4 border-t border-zinc-800">
+                      <details className="text-xs">
+                        <summary className="text-zinc-500 cursor-pointer hover:text-zinc-400">
+                          View Raw Attributes Data
+                        </summary>
+                        <pre className="mt-2 p-3 bg-zinc-800/50 rounded text-zinc-400 overflow-x-auto">
+                          {JSON.stringify(fullProduct.attributes, null, 2)}
+                        </pre>
+                      </details>
                     </div>
                   )}
                 </div>
