@@ -18,14 +18,14 @@ CREATE OR REPLACE FUNCTION create_purchase_order_atomic(
   p_created_by_user_id UUID DEFAULT NULL  -- NEW: Staff who created the PO
 )
 RETURNS TABLE(
-  po_id UUID,
-  po_number TEXT,
-  status TEXT,
-  subtotal NUMERIC,
-  tax_amount NUMERIC,
-  shipping_cost NUMERIC,
-  total_amount NUMERIC,
-  items_created INT
+  out_po_id UUID,
+  out_po_number TEXT,
+  out_status TEXT,
+  out_subtotal NUMERIC,
+  out_tax_amount NUMERIC,
+  out_shipping_cost NUMERIC,
+  out_total_amount NUMERIC,
+  out_items_created INT
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -50,14 +50,14 @@ BEGIN
       -- Return existing PO
       RETURN QUERY
       SELECT
-        po.id,
-        po.po_number,
-        po.status,
-        po.subtotal,
-        po.tax_amount,
-        po.shipping_cost,
-        po.total_amount,
-        (SELECT COUNT(*)::INT FROM purchase_order_items WHERE purchase_order_id = po.id)
+        po.id AS out_po_id,
+        po.po_number AS out_po_number,
+        po.status AS out_status,
+        po.subtotal AS out_subtotal,
+        po.tax_amount AS out_tax_amount,
+        po.shipping_cost AS out_shipping_cost,
+        po.total_amount AS out_total_amount,
+        (SELECT COUNT(*)::INT FROM purchase_order_items WHERE purchase_order_id = po.id) AS out_items_created
       FROM purchase_orders po
       WHERE po.id = v_po_id;
       RETURN;
@@ -142,14 +142,14 @@ BEGIN
   -- Return the result
   RETURN QUERY
   SELECT
-    v_po_id,
-    v_po_number,
-    'draft'::TEXT,
-    v_subtotal,
-    COALESCE(p_tax_amount, 0),
-    COALESCE(p_shipping_cost, 0),
-    v_total_amount,
-    v_items_created;
+    v_po_id AS out_po_id,
+    v_po_number AS out_po_number,
+    'draft'::TEXT AS out_status,
+    v_subtotal AS out_subtotal,
+    COALESCE(p_tax_amount, 0) AS out_tax_amount,
+    COALESCE(p_shipping_cost, 0) AS out_shipping_cost,
+    v_total_amount AS out_total_amount,
+    v_items_created AS out_items_created;
 END;
 $$;
 

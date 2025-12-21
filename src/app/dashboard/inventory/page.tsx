@@ -8,11 +8,14 @@ import {
   ClipboardList,
 } from 'lucide-react'
 import { PurchaseOrdersTab } from '@/components/inventory/PurchaseOrdersTab'
+import { StockLevelsTab } from '@/components/inventory/StockLevelsTab'
+import { TransfersTab } from '@/components/inventory/TransfersTab'
+import { AuditsTab } from '@/components/inventory/AuditsTab'
 
 type InventoryTab = 'purchase-orders' | 'stock' | 'transfers' | 'audits'
 
 export default function InventoryPage() {
-  const [activeTab, setActiveTab] = useState<InventoryTab>('purchase-orders')
+  const [activeTab, setActiveTab] = useState<InventoryTab>('stock')
 
   return (
     <div className="space-y-4">
@@ -24,17 +27,6 @@ export default function InventoryPage() {
           {/* Tab Navigation */}
           <div className="flex items-center gap-1 bg-zinc-950 border border-zinc-800 p-1 rounded-sm">
             <button
-              onClick={() => setActiveTab('purchase-orders')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
-                activeTab === 'purchase-orders'
-                  ? 'bg-zinc-800 text-white'
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              <PackageOpen className="w-3.5 h-3.5" />
-              Purchase Orders
-            </button>
-            <button
               onClick={() => setActiveTab('stock')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
                 activeTab === 'stock'
@@ -44,6 +36,17 @@ export default function InventoryPage() {
             >
               <Package className="w-3.5 h-3.5" />
               Stock Levels
+            </button>
+            <button
+              onClick={() => setActiveTab('purchase-orders')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-light transition-colors rounded-sm ${
+                activeTab === 'purchase-orders'
+                  ? 'bg-zinc-800 text-white'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              <PackageOpen className="w-3.5 h-3.5" />
+              Purchase Orders
             </button>
             <button
               onClick={() => setActiveTab('transfers')}
@@ -72,31 +75,10 @@ export default function InventoryPage() {
       </div>
 
       {/* Tab Content */}
+      {activeTab === 'stock' && <StockLevelsTab />}
       {activeTab === 'purchase-orders' && <PurchaseOrdersTab />}
-
-      {activeTab === 'stock' && (
-        <div className="bg-zinc-950 border border-zinc-800 p-12 text-center">
-          <Package className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-          <h3 className="text-lg font-light text-zinc-400 mb-2">Stock Levels</h3>
-          <p className="text-sm text-zinc-600">Coming soon - View and manage inventory across locations</p>
-        </div>
-      )}
-
-      {activeTab === 'transfers' && (
-        <div className="bg-zinc-950 border border-zinc-800 p-12 text-center">
-          <ArrowLeftRight className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-          <h3 className="text-lg font-light text-zinc-400 mb-2">Inventory Transfers</h3>
-          <p className="text-sm text-zinc-600">Coming soon - Transfer stock between locations</p>
-        </div>
-      )}
-
-      {activeTab === 'audits' && (
-        <div className="bg-zinc-950 border border-zinc-800 p-12 text-center">
-          <ClipboardList className="w-12 h-12 text-zinc-700 mx-auto mb-4" />
-          <h3 className="text-lg font-light text-zinc-400 mb-2">Inventory Audits</h3>
-          <p className="text-sm text-zinc-600">Coming soon - Track and reconcile inventory counts</p>
-        </div>
-      )}
+      {activeTab === 'transfers' && <TransfersTab />}
+      {activeTab === 'audits' && <AuditsTab />}
     </div>
   )
 }
