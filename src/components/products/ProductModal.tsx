@@ -461,9 +461,9 @@ export function ProductModal({
               >
                 <Icon className="w-4 h-4" />
                 {tab.label}
-                {tab.id === 'variations' && variations.length > 0 && (
+                {tab.id === 'variations' && categoryVariants.length > 0 && (
                   <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-zinc-700 rounded">
-                    {variations.length}
+                    {categoryVariants.length}
                   </span>
                 )}
                 {tab.id === 'images' && imageGallery.length > 0 && (
