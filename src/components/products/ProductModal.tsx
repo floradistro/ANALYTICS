@@ -30,21 +30,6 @@ import {
 import { useAuthStore } from '@/stores/auth.store'
 import { supabase } from '@/lib/supabase'
 
-interface ProductVariation {
-  id: string
-  sku?: string
-  attributes: Record<string, string> | Array<{ name?: string; attribute?: string; option?: string; value?: string }>
-  regular_price?: number
-  sale_price?: number
-  cost_price?: number
-  price?: number
-  stock_quantity?: number
-  stock_status?: string
-  image?: string
-  is_active?: boolean
-  meta_data?: Record<string, any>
-}
-
 interface CategoryVariantTemplate {
   id: string
   variant_name: string
@@ -124,7 +109,6 @@ export function ProductModal({
 
   // Full product data from database
   const [fullProduct, setFullProduct] = useState<any>(null)
-  const [variations, setVariations] = useState<ProductVariation[]>([])
   const [pricingTiers, setPricingTiers] = useState<PricingTier[]>([])
   const [categoryFields, setCategoryFields] = useState<VendorProductField[]>([])
   const [categoryVariants, setCategoryVariants] = useState<CategoryVariantTemplate[]>([])
@@ -231,15 +215,6 @@ export function ProductModal({
         setPricingTiers([])
       }
 
-      // Always try to load variations
-      const { data: variationsData } = await supabase
-        .from('product_variations')
-        .select('*')
-        .eq('parent_product_id', productId)
-        .order('created_at', { ascending: true })
-
-      setVariations(variationsData || [])
-
       // Load category variant templates if product has a category
       if (productData.primary_category_id) {
         const { data: categoryVariantsData } = await supabase
@@ -312,7 +287,6 @@ export function ProductModal({
       custom_fields: {},
     })
     setFullProduct(null)
-    setVariations([])
     setPricingTiers([])
     setImageGallery([])
     setCategoryVariants([])
@@ -1210,81 +1184,8 @@ export function ProductModal({
                     </div>
                   )}
 
-                  {/* Legacy Product Variations (from product_variations table) */}
-                  {variations.length > 0 && (
-                    <div className="space-y-4 pt-4 border-t border-zinc-800">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-sm font-medium text-zinc-400 uppercase tracking-wider">
-                          Product Variations
-                        </h3>
-                        <span className="text-xs text-zinc-500">
-                          {variations.length} variation{variations.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      <div className="space-y-2">
-                        {variations.map((variation, idx) => {
-                          const attrs = variation.attributes || {}
-                          const attrEntries = Array.isArray(attrs)
-                            ? attrs.map((a: any) => [a.name || a.attribute, a.option || a.value])
-                            : Object.entries(attrs)
-
-                          return (
-                            <div
-                              key={variation.id}
-                              className="flex items-center gap-4 p-3 bg-zinc-800/50 rounded border border-zinc-700"
-                            >
-                              <div className="w-10 h-10 rounded bg-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                {variation.image ? (
-                                  <img src={variation.image} alt="" className="w-full h-full object-cover" />
-                                ) : (
-                                  <Package className="w-5 h-5 text-zinc-600" />
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  {attrEntries.length > 0 ? (
-                                    attrEntries.map(([key, value]: [string, any], attrIdx: number) => (
-                                      <span key={attrIdx} className="px-2 py-0.5 text-xs bg-zinc-700 rounded">
-                                        <span className="text-zinc-400">{key}:</span>{' '}
-                                        <span className="text-white">{String(value)}</span>
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-xs text-zinc-500">Variation #{idx + 1}</span>
-                                  )}
-                                </div>
-                                {variation.sku && (
-                                  <div className="text-xs text-zinc-500 mt-1">SKU: {variation.sku}</div>
-                                )}
-                              </div>
-                              <div className="text-right">
-                                <div className="text-white font-mono text-sm">
-                                  ${(variation.price || variation.regular_price)?.toFixed(2) || '0.00'}
-                                </div>
-                              </div>
-                              <div className="text-right w-16">
-                                <div className={`text-sm ${
-                                  variation.stock_status === 'instock' ? 'text-emerald-400' : 'text-zinc-500'
-                                }`}>
-                                  {variation.stock_quantity ?? '-'}
-                                </div>
-                              </div>
-                              <div className="w-6">
-                                {variation.is_active !== false ? (
-                                  <ToggleRight className="w-5 h-5 text-emerald-400" />
-                                ) : (
-                                  <ToggleLeft className="w-5 h-5 text-zinc-600" />
-                                )}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  )}
-
                   {/* No variants at all */}
-                  {categoryVariants.length === 0 && variations.length === 0 && productVariantConfigs.length === 0 && (
+                  {categoryVariants.length === 0 && productVariantConfigs.length === 0 && (
                     <div className="text-center py-12 text-zinc-500">
                       <Layers className="w-12 h-12 mx-auto mb-3 opacity-50" />
                       <p className="text-sm">No variants configured</p>
