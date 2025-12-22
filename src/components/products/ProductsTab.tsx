@@ -80,7 +80,7 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
 
     async function openProduct() {
       // Normalize UUID to lowercase for comparison
-      const normalizedId = initialProductId.toLowerCase()
+      const normalizedId = initialProductId!.toLowerCase()
       console.log('[ProductsTab] Looking for product:', normalizedId, 'in', products.length, 'loaded products')
 
       // First check if it's in the loaded products (case-insensitive comparison)
