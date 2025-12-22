@@ -27,6 +27,14 @@ export async function POST(request: NextRequest) {
     const brand_color = body.brand_color || body.brandColor
     const tags = body.tags
 
+    // Sale-level tracking fields (for per-unit QR codes)
+    const customer_id = body.customer_id || body.customerId
+    const staff_id = body.staff_id || body.staffId
+    const sold_at = body.sold_at || body.soldAt
+    const unit_price = body.unit_price || body.unitPrice
+    const quantity_index = body.quantity_index || body.quantityIndex
+    const location_name = body.location_name || body.locationName
+
     if (!vendor_id || !code || !name) {
       return NextResponse.json(
         { success: false, error: 'vendor_id, code, and name are required' },
@@ -75,7 +83,8 @@ export async function POST(request: NextRequest) {
     // Determine QR type from code prefix or provided type
     let qrType = type || 'product'
     if (!type) {
-      if (code.startsWith('P')) qrType = 'product'
+      if (code.startsWith('S')) qrType = 'sale'  // Sale-level tracking (unique per unit sold)
+      else if (code.startsWith('P')) qrType = 'product'
       else if (code.startsWith('O')) qrType = 'order'
       else if (code.startsWith('M') || code.startsWith('C')) qrType = 'marketing'
     }
@@ -107,6 +116,14 @@ export async function POST(request: NextRequest) {
     if (location_id) qrData.location_id = location_id
     if (campaign_name) qrData.campaign_name = campaign_name
     if (tags) qrData.tags = tags
+
+    // Sale-level tracking fields
+    if (customer_id) qrData.customer_id = customer_id
+    if (staff_id) qrData.staff_id = staff_id
+    if (sold_at) qrData.sold_at = sold_at
+    if (unit_price !== undefined) qrData.unit_price = unit_price
+    if (quantity_index !== undefined) qrData.quantity_index = quantity_index
+    if (location_name) qrData.location_name = location_name
 
     const { data, error } = await supabase
       .from('qr_codes')

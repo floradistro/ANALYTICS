@@ -209,7 +209,11 @@ export async function POST(request: NextRequest) {
         product_id: qrCode.product_id,
         order_id: qrCode.order_id,
         campaign_name: qrCode.campaign_name,
-        landing_page: landingPage
+        landing_page: landingPage,
+        // Sale-level tracking info (for display on landing page)
+        sold_at: qrCode.sold_at,
+        location_name: qrCode.location_name,
+        location_id: qrCode.location_id
       }
     })
   } catch (err) {
@@ -294,7 +298,11 @@ export async function GET(request: NextRequest) {
       landing_page: landingPage,
       is_active: qrCode.is_active,
       total_scans: qrCode.total_scans,
-      unique_scans: qrCode.unique_scans
+      unique_scans: qrCode.unique_scans,
+      // Sale-level tracking info
+      sold_at: qrCode.sold_at,
+      location_name: qrCode.location_name,
+      location_id: qrCode.location_id
     }
   })
 }
