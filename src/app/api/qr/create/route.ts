@@ -7,26 +7,25 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const {
-      vendor_id,
-      code,
-      name,
-      type,
-      destination_url,
-      product_id,
-      order_id,
-      location_id,
-      campaign_name,
-      // Landing page fields from Swift app
-      landing_page_title,
-      landing_page_description,
-      landing_page_image_url,
-      landing_page_cta_text,
-      landing_page_cta_url,
-      logo_url,
-      brand_color,
-      tags
-    } = body
+
+    // Accept both snake_case and camelCase (Swift sends camelCase)
+    const vendor_id = body.vendor_id || body.vendorId
+    const code = body.code
+    const name = body.name
+    const type = body.type
+    const destination_url = body.destination_url || body.destinationUrl
+    const product_id = body.product_id || body.productId
+    const order_id = body.order_id || body.orderId
+    const location_id = body.location_id || body.locationId
+    const campaign_name = body.campaign_name || body.campaignName
+    const landing_page_title = body.landing_page_title || body.landingPageTitle
+    const landing_page_description = body.landing_page_description || body.landingPageDescription
+    const landing_page_image_url = body.landing_page_image_url || body.landingPageImageUrl
+    const landing_page_cta_text = body.landing_page_cta_text || body.landingPageCtaText
+    const landing_page_cta_url = body.landing_page_cta_url || body.landingPageCtaUrl
+    const logo_url = body.logo_url || body.logoUrl
+    const brand_color = body.brand_color || body.brandColor
+    const tags = body.tags
 
     if (!vendor_id || !code || !name) {
       return NextResponse.json(
@@ -38,20 +37,36 @@ export async function POST(request: NextRequest) {
     // Check if QR code already exists (code is globally unique)
     const { data: existing } = await supabase
       .from('qr_codes')
-      .select('id, code, name, type, destination_url')
+      .select('*')
       .eq('code', code)
       .maybeSingle()
 
     if (existing) {
+      // If existing QR is missing product_id but we have one now, update it
+      if (product_id && !existing.product_id) {
+        const updates: any = { product_id }
+        if (landing_page_title) updates.landing_page_title = landing_page_title
+        if (landing_page_description) updates.landing_page_description = landing_page_description
+        if (landing_page_image_url) updates.landing_page_image_url = landing_page_image_url
+        if (landing_page_cta_text) updates.landing_page_cta_text = landing_page_cta_text
+        if (landing_page_cta_url) updates.landing_page_cta_url = landing_page_cta_url
+        if (name && name !== existing.name) updates.name = name
+
+        await supabase
+          .from('qr_codes')
+          .update(updates)
+          .eq('id', existing.id)
+      }
+
       // Return existing QR code (idempotent)
       return NextResponse.json({
         success: true,
         qr_code: {
           id: existing.id,
           code: existing.code,
-          name,
-          type: type || 'product',
-          destination_url,
+          name: name || existing.name,
+          type: existing.type || type || 'product',
+          destination_url: existing.destination_url,
           tracking_url: `https://floradistro.com/qr/${code}`
         }
       })
