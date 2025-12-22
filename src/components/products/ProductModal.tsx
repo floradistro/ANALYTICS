@@ -227,19 +227,27 @@ export function ProductModal({
         setCategoryVariants(categoryVariantsData || [])
 
         // Load product variant configs (which variants are enabled for this product)
-        const { data: variantConfigsData } = await supabase
-          .from('product_variant_configs')
-          .select(`
-            *,
-            variant_template:variant_template_id (
-              id, variant_name, variant_slug, conversion_ratio, conversion_unit,
-              icon, thumbnail_url, pricing_template_id, is_active
-            )
-          `)
-          .eq('product_id', productId)
-          .order('display_order', { ascending: true })
+        // This table may not exist in all deployments, so handle errors gracefully
+        try {
+          const { data: variantConfigsData, error: variantConfigsError } = await supabase
+            .from('product_variant_configs')
+            .select(`
+              *,
+              variant_template:variant_template_id (
+                id, variant_name, variant_slug, conversion_ratio, conversion_unit,
+                icon, thumbnail_url, pricing_template_id, is_active
+              )
+            `)
+            .eq('product_id', productId)
+            .order('display_order', { ascending: true })
 
-        setProductVariantConfigs(variantConfigsData || [])
+          if (!variantConfigsError) {
+            setProductVariantConfigs(variantConfigsData || [])
+          }
+        } catch (err) {
+          // Table may not exist, silently ignore
+          console.log('product_variant_configs not available')
+        }
       } else {
         setCategoryVariants([])
         setProductVariantConfigs([])

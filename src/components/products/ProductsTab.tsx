@@ -15,9 +15,15 @@ import {
 import { useProductsStore, type Product } from '@/stores/products.store'
 import { useAuthStore } from '@/stores/auth.store'
 import { ProductModal } from './ProductModal'
+import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 
-export function ProductsTab() {
+interface ProductsTabProps {
+  initialProductId?: string | null
+  onProductViewed?: () => void
+}
+
+export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabProps = {}) {
   const vendorId = useAuthStore((s) => s.vendorId)
   const {
     products,
@@ -67,6 +73,60 @@ export function ProductsTab() {
       })
     }
   }, [vendorId, categoryFilter, statusFilter, searchQuery])
+
+  // Handle deep-linked product ID from QR dashboard
+  useEffect(() => {
+    if (!initialProductId || modalState.isOpen) return
+
+    async function openProduct() {
+      // Normalize UUID to lowercase for comparison
+      const normalizedId = initialProductId.toLowerCase()
+      console.log('[ProductsTab] Looking for product:', normalizedId, 'in', products.length, 'loaded products')
+
+      // First check if it's in the loaded products (case-insensitive comparison)
+      const product = products.find(p => p.id.toLowerCase() === normalizedId)
+      if (product) {
+        console.log('[ProductsTab] Found product in loaded list, opening modal')
+        setModalState({ isOpen: true, mode: 'edit', product })
+        onProductViewed?.()
+        return
+      }
+
+      // If not found and products haven't loaded yet, wait
+      if (products.length === 0) {
+        console.log('[ProductsTab] Products not loaded yet, waiting...')
+        return
+      }
+
+      // Product not in current list, fetch it directly
+      console.log('[ProductsTab] Product not in list, fetching directly...')
+      const { data, error } = await supabase
+        .from('products')
+        .select(`
+          *,
+          primary_category:categories!primary_category_id(name),
+          pricing_template:pricing_templates!pricing_template_id(name)
+        `)
+        .eq('id', normalizedId)
+        .single()
+
+      console.log('[ProductsTab] Fetch result:', { data: !!data, error })
+
+      if (data && !error) {
+        const fetchedProduct: Product = {
+          ...data,
+          category_name: data.primary_category?.name || null,
+          pricing_template_name: data.pricing_template?.name || null,
+        }
+        setModalState({ isOpen: true, mode: 'edit', product: fetchedProduct })
+      } else if (error) {
+        console.error('[ProductsTab] Failed to fetch product:', error)
+      }
+      onProductViewed?.()
+    }
+
+    openProduct()
+  }, [initialProductId, products, modalState.isOpen, onProductViewed])
 
   const handleDelete = async (productId: string) => {
     if (!vendorId) return

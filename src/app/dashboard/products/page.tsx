@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Package,
   FolderTree,
@@ -12,6 +12,19 @@ type ProductsPageTab = 'products' | 'categories'
 
 export default function ProductsPage() {
   const [activeTab, setActiveTab] = useState<ProductsPageTab>('products')
+  const [initialProductId, setInitialProductId] = useState<string | null>(null)
+
+  // Handle deep linking from QR dashboard via sessionStorage
+  useEffect(() => {
+    const storedProductId = sessionStorage.getItem('openProductId')
+    console.log('[Products Deep Link] storedProductId:', storedProductId, 'current initialProductId:', initialProductId)
+    if (storedProductId && !initialProductId) {
+      console.log('[Products Deep Link] Setting initialProductId:', storedProductId)
+      setInitialProductId(storedProductId)
+      // Clear immediately to prevent re-opening
+      sessionStorage.removeItem('openProductId')
+    }
+  }, [initialProductId])
 
   return (
     <div className="space-y-4">
@@ -49,7 +62,12 @@ export default function ProductsPage() {
       </div>
 
       {/* Tab Content */}
-      {activeTab === 'products' && <ProductsTab />}
+      {activeTab === 'products' && (
+        <ProductsTab
+          initialProductId={initialProductId}
+          onProductViewed={() => setInitialProductId(null)}
+        />
+      )}
       {activeTab === 'categories' && <CategoriesTab />}
     </div>
   )

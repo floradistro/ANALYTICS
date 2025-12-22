@@ -70,6 +70,19 @@ export default function OrdersPage() {
   const [failedSourceFilter, setFailedSourceFilter] = useState<'all' | 'online' | 'pos'>('all')
   const pageSize = 20
 
+  // Handle deep linking from QR dashboard via sessionStorage
+  useEffect(() => {
+    const storedOrderId = sessionStorage.getItem('openOrderId')
+    console.log('[Orders Deep Link] storedOrderId:', storedOrderId, 'editModalOpen:', editModalOpen)
+    if (storedOrderId && !editModalOpen) {
+      console.log('[Orders Deep Link] Opening modal for order:', storedOrderId)
+      setEditOrderId(storedOrderId)
+      setEditModalOpen(true)
+      // Clear immediately to prevent re-opening
+      sessionStorage.removeItem('openOrderId')
+    }
+  }, [editModalOpen])
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {

@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
       utm_source,
       utm_medium,
       utm_campaign,
-      is_unique: isUnique,
+      is_first_scan: isUnique,
       scanned_at: new Date().toISOString()
     }
 

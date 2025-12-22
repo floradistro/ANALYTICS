@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { QrCode, Package, ShoppingBag, MapPin, Megaphone, Eye, Users, TrendingUp, Calendar, ExternalLink } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { MetricCard } from '@/components/ui/MetricCard'
+import { QRDetailModal } from '@/components/qr/QRDetailModal'
 import { format } from 'date-fns'
 
 type QRType = 'all' | 'product' | 'sale' | 'order' | 'marketing'
@@ -24,7 +25,9 @@ interface QRCode {
   location_id: string | null
   location_name: string | null
   customer_id: string | null
+  customer_name: string | null
   staff_id: string | null
+  staff_name: string | null
   sold_at: string | null
   unit_price: number | null
   quantity_index: number | null
@@ -60,6 +63,7 @@ export default function QRDashboard() {
     recentScans: 0,
   })
   const [loading, setLoading] = useState(true)
+  const [selectedQR, setSelectedQR] = useState<QRCode | null>(null)
 
   const fetchQRCodes = useCallback(async () => {
     if (!vendorId) return
@@ -248,7 +252,11 @@ export default function QRDashboard() {
               </thead>
               <tbody className="divide-y divide-zinc-900">
                 {filteredCodes.map((qr) => (
-                  <tr key={qr.id} className="hover:bg-zinc-900/50 transition-colors">
+                  <tr
+                    key={qr.id}
+                    onClick={() => setSelectedQR(qr)}
+                    className="hover:bg-zinc-900/50 transition-colors cursor-pointer"
+                  >
                     <td className="px-3 lg:px-4 py-3 lg:py-4">
                       <div className="flex items-center gap-2">
                         <code className="text-xs font-mono text-white bg-zinc-800 px-2 py-1 rounded">
@@ -323,6 +331,14 @@ export default function QRDashboard() {
       {activeTab === 'sale' && filteredCodes.length > 0 && (
         <SaleAnalytics qrCodes={filteredCodes} />
       )}
+
+      {/* QR Detail Modal */}
+      <QRDetailModal
+        isOpen={!!selectedQR}
+        onClose={() => setSelectedQR(null)}
+        qrCode={selectedQR}
+        vendorId={vendorId || ''}
+      />
     </div>
   )
 }

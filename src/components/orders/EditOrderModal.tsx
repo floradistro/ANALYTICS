@@ -42,6 +42,9 @@ interface OrderItem {
   quantity: number
   unit_price: number
   subtotal: number
+  location_id?: string | null
+  pickup_location_id?: string | null
+  pickup_location_name?: string | null
 }
 
 interface Customer {
@@ -108,6 +111,12 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
   const [orderNotes, setOrderNotes] = useState<any[]>([])
   const [newNote, setNewNote] = useState('')
   const [addingNote, setAddingNote] = useState(false)
+  const [fulfillmentLocation, setFulfillmentLocation] = useState<any>(null)
+  const [orderLocations, setOrderLocations] = useState<any[]>([])
+  const [emailSends, setEmailSends] = useState<any[]>([])
+  const [selectedEmail, setSelectedEmail] = useState<any>(null)
+  const [emailContent, setEmailContent] = useState<string | null>(null)
+  const [loadingEmail, setLoadingEmail] = useState(false)
 
   // Staff attribution - map of user IDs to emails
   const [staffEmails, setStaffEmails] = useState<Record<string, string>>({})
@@ -373,6 +382,71 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
             setStaffEmails(emailMap)
           }
         }
+
+        // Fetch fulfillment location if pickup_location_id exists
+        if (orderData.pickup_location_id) {
+          const { data: locationData } = await supabase
+            .from('locations')
+            .select('id, name, address_line1, city, state, zip, phone')
+            .eq('id', orderData.pickup_location_id)
+            .single()
+
+          setFulfillmentLocation(locationData)
+        } else {
+          setFulfillmentLocation(null)
+        }
+
+        // Fetch order_locations (multi-location fulfillment routing)
+        const { data: orderLocationsData } = await supabase
+          .from('order_locations')
+          .select(`
+            *,
+            location:locations(id, name, address_line1, city, state, zip, phone, type)
+          `)
+          .eq('order_id', orderId)
+          .order('created_at', { ascending: true })
+
+        setOrderLocations(orderLocationsData || [])
+
+        // Fetch emails for this order from Resend API (search by order number in subject)
+        try {
+          const params = new URLSearchParams()
+          if (orderData.order_number) params.set('order_number', orderData.order_number)
+
+          const resendResponse = await fetch(`/api/emails?${params.toString()}`)
+          if (resendResponse.ok) {
+            const resendData = await resendResponse.json()
+            console.log('Emails API response:', resendData)
+            if (resendData.emails && resendData.emails.length > 0) {
+              // Transform Resend API response to match our format
+              const transformedEmails = resendData.emails.map((email: any) => ({
+                id: email.id,
+                email_type: email.tags?.find((t: any) => t.name === 'category')?.value ||
+                            (email.subject?.toLowerCase().includes('confirm') ? 'order_confirmation' :
+                             email.subject?.toLowerCase().includes('receipt') ? 'receipt' :
+                             email.subject?.toLowerCase().includes('shipped') ? 'order_shipped' : 'email'),
+                subject: email.subject,
+                to_email: Array.isArray(email.to) ? email.to[0] : email.to,
+                status: email.last_event || 'sent',
+                sent_at: email.created_at,
+                created_at: email.created_at,
+                delivered_at: email.last_event === 'delivered' ? email.created_at : null,
+                opened_at: email.last_event === 'opened' ? email.created_at : null,
+                clicked_at: email.last_event === 'clicked' ? email.created_at : null,
+                resend_email_id: email.id,
+              }))
+              setEmailSends(transformedEmails)
+            } else {
+              setEmailSends([])
+            }
+          } else {
+            setEmailSends([])
+          }
+        } catch (e) {
+          console.error('Failed to fetch emails:', e)
+          setEmailSends([])
+        }
+
         setHasChanges(false)
         setActiveTab('overview')
       } catch (err) {
@@ -557,6 +631,32 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
     }
   }
 
+  const handleViewEmail = async (email: any) => {
+    setSelectedEmail(email)
+    setEmailContent(null)
+    setLoadingEmail(true)
+
+    try {
+      // If we have a resend_email_id, fetch the full content
+      const emailId = email.resend_email_id || email.id
+      console.log('Fetching email content for:', emailId, email)
+      if (emailId) {
+        const response = await fetch(`/api/emails/${emailId}`)
+        const data = await response.json()
+        console.log('Email API response:', data)
+        if (data.email) {
+          setEmailContent(data.email.html || data.email.text || null)
+        } else if (data.error) {
+          console.error('Email fetch error:', data.details || data.error)
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch email content:', e)
+    } finally {
+      setLoadingEmail(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (!orderId) return
     if (!confirm(`Delete order ${order?.order_number}?\n\nThis cannot be undone.`)) return
@@ -663,9 +763,9 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
     <>
       <div className="fixed inset-0 bg-black/80 z-50" onClick={onClose} />
 
-      <div className="fixed inset-4 md:inset-8 lg:inset-12 bg-zinc-950 border border-zinc-800 z-50 flex flex-col overflow-hidden shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950">
+      <div className="fixed inset-4 md:inset-8 lg:inset-12 bg-zinc-950 border border-zinc-800 z-50 flex flex-col overflow-hidden shadow-2xl rounded-lg">
+        {/* Header - sticky at top */}
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950">
           <div className="flex items-center gap-4">
             <div>
               <h2 className="text-base font-medium text-white tracking-tight">
@@ -696,8 +796,8 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-zinc-800 bg-zinc-950/50 overflow-x-auto">
+        {/* Tabs - sticky below header */}
+        <div className="flex-shrink-0 flex border-b border-zinc-800 bg-zinc-950/50 overflow-x-auto">
           {tabs.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.id
@@ -723,8 +823,8 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
           })}
         </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Content - scrollable area */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="w-5 h-5 text-zinc-500 animate-spin" />
@@ -811,33 +911,117 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                         </div>
                       </div>
 
-                      {/* Fulfillment Information */}
-                      {(order?.prepared_at || order?.prepared_by_user_id || order?.delivered_by_user_id) && (
+                      {/* Fulfillment Summary - Quick overview, click Items tab for full details */}
+                      {orderLocations.length > 0 && (
+                        <div className="space-y-3">
+                          <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
+                            <MapPin className="w-4 h-4" />
+                            Fulfillment ({orderLocations.length} location{orderLocations.length !== 1 ? 's' : ''})
+                          </h3>
+                          <div className="p-4 bg-zinc-900/50 border border-zinc-800">
+                            <div className="space-y-3">
+                              {orderLocations.map((ol) => {
+                                // Use location's own status - don't inherit from order level
+                                // Each location tracks its own fulfillment independently
+                                const locationStatus = ol.fulfillment_status || 'pending'
+                                const locationTracking = ol.tracking_number
+                                const locationTrackingUrl = ol.tracking_url
+
+                                return (
+                                  <div key={ol.id} className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                      <div className={`w-2 h-2 rounded-full ${
+                                        locationStatus === 'fulfilled' || locationStatus === 'shipped' || locationStatus === 'delivered' || locationStatus === 'completed' ? 'bg-emerald-400' :
+                                        locationStatus === 'unfulfilled' || locationStatus === 'pending' ? 'bg-amber-400' :
+                                        locationStatus === 'processing' ? 'bg-blue-400' :
+                                        'bg-zinc-400'
+                                      }`} />
+                                      <span className="text-white text-sm font-medium">{ol.location?.name || 'Unknown'}</span>
+                                      {ol.item_count && (
+                                        <span className="text-xs text-zinc-500">({ol.item_count} item{ol.item_count !== 1 ? 's' : ''})</span>
+                                      )}
+                                      {locationTracking && (
+                                        <span className="text-xs text-zinc-500 font-mono">
+                                          {locationTrackingUrl ? (
+                                            <a href={locationTrackingUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">
+                                              {locationTracking}
+                                            </a>
+                                          ) : locationTracking}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className={`text-[10px] px-2 py-1 font-bold uppercase tracking-wide ${
+                                      locationStatus === 'fulfilled' || locationStatus === 'shipped' || locationStatus === 'delivered' || locationStatus === 'completed' ? 'text-emerald-400 bg-emerald-400/10' :
+                                      locationStatus === 'unfulfilled' || locationStatus === 'pending' ? 'text-amber-400 bg-amber-400/10' :
+                                      locationStatus === 'processing' ? 'text-blue-400 bg-blue-400/10' :
+                                      'text-zinc-400 bg-zinc-400/10'
+                                    }`}>
+                                      {locationStatus}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                            <p className="text-xs text-zinc-600 mt-3 pt-3 border-t border-zinc-800">
+                              View Items tab for full fulfillment details and tracking
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Simple Fulfillment Info (fallback if no order_locations) */}
+                      {orderLocations.length === 0 && (fulfillmentLocation || order?.prepared_at || order?.prepared_by_user_id || order?.delivered_by_user_id) && (
                         <div className="space-y-3">
                           <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
                             <Package className="w-4 h-4" />
                             Fulfillment
                           </h3>
                           <div className="p-5 bg-zinc-900/50 border border-zinc-800 space-y-3">
-                            {order.prepared_at && (
+                            {fulfillmentLocation && (
+                              <>
+                                <div className="flex justify-between text-sm">
+                                  <span className="text-zinc-400">Routed To</span>
+                                  <span className="text-white font-semibold">{fulfillmentLocation.name}</span>
+                                </div>
+                                {(fulfillmentLocation.address_line1 || fulfillmentLocation.city) && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-zinc-400">Address</span>
+                                    <span className="text-white text-right">
+                                      {fulfillmentLocation.address_line1 && <span>{fulfillmentLocation.address_line1}<br /></span>}
+                                      {fulfillmentLocation.city}, {fulfillmentLocation.state} {fulfillmentLocation.zip}
+                                    </span>
+                                  </div>
+                                )}
+                                {fulfillmentLocation.phone && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-zinc-400">Phone</span>
+                                    <span className="text-white">{fulfillmentLocation.phone}</span>
+                                  </div>
+                                )}
+                                {(order?.prepared_at || order?.ready_at || order?.picked_up_at || order?.completed_at) && (
+                                  <div className="border-t border-zinc-800 pt-3 mt-3" />
+                                )}
+                              </>
+                            )}
+                            {order?.prepared_at && (
                               <div className="flex justify-between text-sm">
                                 <span className="text-zinc-400">Prepared At</span>
                                 <span className="text-white font-medium">{format(new Date(order.prepared_at), 'MMM d, h:mm a')}</span>
                               </div>
                             )}
-                            {order.ready_at && (
+                            {order?.ready_at && (
                               <div className="flex justify-between text-sm">
                                 <span className="text-zinc-400">Ready At</span>
                                 <span className="text-white font-medium">{format(new Date(order.ready_at), 'MMM d, h:mm a')}</span>
                               </div>
                             )}
-                            {order.picked_up_at && (
+                            {order?.picked_up_at && (
                               <div className="flex justify-between text-sm">
                                 <span className="text-zinc-400">Picked Up</span>
                                 <span className="text-white font-medium">{format(new Date(order.picked_up_at), 'MMM d, h:mm a')}</span>
                               </div>
                             )}
-                            {order.completed_at && (
+                            {order?.completed_at && (
                               <div className="flex justify-between text-sm">
                                 <span className="text-zinc-400">Completed</span>
                                 <span className="text-white font-medium">{format(new Date(order.completed_at), 'MMM d, h:mm a')}</span>
@@ -1404,40 +1588,29 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                     </div>
                   </div>
 
-                  {/* Items Summary - Full Width */}
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
-                      <Package className="w-4 h-4" />
-                      Order Items ({items.length})
-                    </h3>
-                    <div className="bg-zinc-900/30 border border-zinc-800 overflow-hidden">
-                      <div className="divide-y divide-zinc-800/50">
-                        {items.slice(0, 8).map((item) => (
-                          <div key={item.id} className="flex items-center justify-between p-4 hover:bg-zinc-800/30 transition-colors">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm text-white font-medium">{item.product_name}</p>
-                              {item.product_sku && (
-                                <p className="text-xs text-zinc-500 mt-0.5 font-mono">SKU: {item.product_sku}</p>
-                              )}
-                            </div>
-                            <div className="text-right ml-4 flex items-center gap-6">
-                              <div className="text-sm text-zinc-400">
-                                <span className="font-semibold text-white">{item.quantity}</span> × ${(item.unit_price || 0).toFixed(2)}
-                              </div>
-                              <div className="min-w-[80px]">
-                                <p className="text-base text-white font-bold tabular-nums">${(item.subtotal || 0).toFixed(2)}</p>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                      {items.length > 8 && (
-                        <div className="px-4 py-3 bg-zinc-800/20 text-center">
-                          <p className="text-xs text-zinc-500 font-medium">+{items.length - 8} more items - view in Items tab</p>
+                  {/* Items Summary - Links to Items Tab */}
+                  <button
+                    onClick={() => setActiveTab('items')}
+                    className="w-full p-4 bg-zinc-900/30 border border-zinc-800 hover:bg-zinc-900/50 hover:border-zinc-700 transition-all text-left group"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <Package className="w-5 h-5 text-zinc-400 group-hover:text-white transition-colors" />
+                        <div>
+                          <p className="text-sm font-semibold text-white uppercase tracking-wide">
+                            {items.length} Item{items.length !== 1 ? 's' : ''} · {orderLocations.length} Fulfillment Location{orderLocations.length !== 1 ? 's' : ''}
+                          </p>
+                          <p className="text-xs text-zinc-500 mt-0.5">
+                            View items grouped by location with tracking info →
+                          </p>
                         </div>
-                      )}
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-white tabular-nums">${items.reduce((sum, item) => sum + (item.subtotal || 0), 0).toFixed(2)}</p>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider">Subtotal</p>
+                      </div>
                     </div>
-                  </div>
+                  </button>
 
                   {/* Quick Status Summary */}
                   <div className="p-5 bg-zinc-900/30 border border-zinc-800">
@@ -1506,6 +1679,97 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                       </div>
                     </div>
                   )}
+
+                  {/* Emails Sent */}
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-white flex items-center gap-2 uppercase tracking-wide">
+                      <Mail className="w-4 h-4" />
+                      Emails Sent ({emailSends.length})
+                    </h3>
+                    <div className="bg-zinc-900/30 border border-zinc-800 overflow-hidden">
+                      {emailSends.length === 0 ? (
+                        <div className="p-4 text-center text-sm text-zinc-500">No emails sent for this order</div>
+                      ) : (
+                        <div className="divide-y divide-zinc-800/50">
+                          {emailSends.map((email) => (
+                            <div
+                              key={email.id}
+                              className="p-4 hover:bg-zinc-800/30 transition-colors cursor-pointer"
+                              onClick={() => handleViewEmail(email)}
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                      email.email_type === 'receipt' ? 'text-emerald-400 bg-emerald-400/10' :
+                                      email.email_type === 'order_confirmation' ? 'text-blue-400 bg-blue-400/10' :
+                                      email.email_type === 'order_shipped' ? 'text-purple-400 bg-purple-400/10' :
+                                      email.email_type === 'order_ready' ? 'text-amber-400 bg-amber-400/10' :
+                                      'text-zinc-400 bg-zinc-400/10'
+                                    }`}>
+                                      {email.email_type?.replace(/_/g, ' ') || 'Email'}
+                                    </span>
+                                    <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                      email.status === 'delivered' ? 'text-emerald-400 bg-emerald-400/10' :
+                                      email.status === 'sent' ? 'text-blue-400 bg-blue-400/10' :
+                                      email.status === 'opened' ? 'text-purple-400 bg-purple-400/10' :
+                                      email.status === 'clicked' ? 'text-cyan-400 bg-cyan-400/10' :
+                                      email.status === 'bounced' ? 'text-red-400 bg-red-400/10' :
+                                      email.status === 'failed' ? 'text-red-400 bg-red-400/10' :
+                                      'text-zinc-400 bg-zinc-400/10'
+                                    }`}>
+                                      {email.status}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm text-white font-medium truncate">{email.subject}</p>
+                                  <p className="text-xs text-zinc-500 mt-1">To: {email.to_email}</p>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                  <div className="text-right text-xs text-zinc-500 whitespace-nowrap">
+                                    {email.sent_at ? format(new Date(email.sent_at), 'MMM d, h:mm a') :
+                                     email.created_at ? format(new Date(email.created_at), 'MMM d, h:mm a') : '-'}
+                                  </div>
+                                  <ExternalLink className="w-4 h-4 text-zinc-600" />
+                                </div>
+                              </div>
+                              {/* Email engagement timeline */}
+                              <div className="flex items-center gap-4 mt-3 text-xs">
+                                {email.delivered_at && (
+                                  <span className="text-emerald-400 flex items-center gap-1">
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    Delivered {format(new Date(email.delivered_at), 'h:mm a')}
+                                  </span>
+                                )}
+                                {email.opened_at && (
+                                  <span className="text-purple-400 flex items-center gap-1">
+                                    <Mail className="w-3 h-3" />
+                                    Opened {format(new Date(email.opened_at), 'h:mm a')}
+                                  </span>
+                                )}
+                                {email.clicked_at && (
+                                  <span className="text-cyan-400 flex items-center gap-1">
+                                    <ExternalLink className="w-3 h-3" />
+                                    Clicked {format(new Date(email.clicked_at), 'h:mm a')}
+                                  </span>
+                                )}
+                                {email.bounced_at && (
+                                  <span className="text-red-400 flex items-center gap-1">
+                                    <XCircle className="w-3 h-3" />
+                                    Bounced
+                                  </span>
+                                )}
+                                {email.error_message && (
+                                  <span className="text-red-400 text-xs truncate max-w-[200px]" title={email.error_message}>
+                                    {email.error_message}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1624,8 +1888,8 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                 <div className="max-w-5xl mx-auto space-y-5">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-[11px] font-black text-white uppercase tracking-wider">Order Items Management</h3>
-                      <p className="text-xs text-zinc-500 mt-1">Modify quantities, prices, or add new items. Totals update automatically.</p>
+                      <h3 className="text-[11px] font-black text-white uppercase tracking-wider">Order Items & Fulfillment</h3>
+                      <p className="text-xs text-zinc-500 mt-1">Items grouped by fulfillment location with tracking information.</p>
                     </div>
                     <button
                       onClick={() => setShowAddProduct(!showAddProduct)}
@@ -1692,70 +1956,241 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
                     </div>
                   )}
 
-                  <div className="space-y-2">
-                    {items.map((item) => {
-                      const isRemoved = itemsToRemove.has(item.id)
-                      const qty = itemQuantities[item.id] ?? item.quantity
-                      const price = itemPrices[item.id] ?? item.unit_price
-                      const lineTotal = qty * price
+                  {/* Group items by fulfillment location */}
+                  {(() => {
+                    // Strategy: Use order_locations as the source of truth for fulfillment groups
+                    // Items are matched to locations via location_id or pickup_location_id
+                    // Each location has independent status/tracking - no inheritance from order level
 
-                      return (
-                        <div
-                          key={item.id}
-                          className={`flex items-center gap-4 p-4 border ${
-                            isRemoved ? 'bg-red-950/20 border-red-900/30' : 'bg-zinc-900/30 border-zinc-800 hover:bg-zinc-800/30'
-                          } transition-all`}
-                        >
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-medium ${isRemoved ? 'line-through text-zinc-600' : 'text-white'}`}>
-                              {item.product_name}
-                            </p>
-                            {item.product_sku && <p className="text-[11px] text-zinc-600 mt-0.5">SKU: {item.product_sku}</p>}
-                          </div>
+                    type LocationGroup = {
+                      locId: string
+                      location: any
+                      orderLoc: any
+                      items: typeof items
+                    }
 
-                          {isRemoved ? (
-                            <button onClick={() => handleRestoreItem(item.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs hover:bg-zinc-700">
-                              <RotateCcw className="w-3 h-3" />
-                              Restore
-                            </button>
-                          ) : (
-                            <>
-                              <div className="w-24">
-                                <div className="relative">
-                                  <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
-                                  <input
-                                    type="number"
-                                    step="0.01"
-                                    value={price}
-                                    onChange={(e) => handlePriceChange(item.id, e.target.value)}
-                                    className="w-full pl-6 pr-2 py-2 bg-zinc-800 border border-zinc-700 text-white text-sm text-right focus:outline-none focus:border-zinc-600 tabular-nums"
-                                  />
-                                </div>
-                              </div>
+                    const locationGroups: LocationGroup[] = []
+                    const assignedItemIds = new Set<string>()
 
-                              <div className="flex items-center bg-zinc-800 border border-zinc-700">
-                                <button onClick={() => handleQuantityChange(item.id, -1)} className="p-2 text-zinc-400 hover:text-white">
-                                  <Minus className="w-3.5 h-3.5" />
-                                </button>
-                                <span className="w-8 text-center text-white text-sm font-medium tabular-nums">{qty}</span>
-                                <button onClick={() => handleQuantityChange(item.id, 1)} className="p-2 text-zinc-400 hover:text-white">
-                                  <Plus className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-
-                              <div className="w-20 text-right">
-                                <p className="text-sm text-white font-medium tabular-nums">${lineTotal.toFixed(2)}</p>
-                              </div>
-
-                              <button onClick={() => handleRemoveItem(item.id)} className="p-2 text-zinc-600 hover:text-red-400">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </>
-                          )}
-                        </div>
+                    // First, create groups from order_locations (source of truth for fulfillment status/tracking)
+                    orderLocations.forEach(orderLoc => {
+                      const locId = orderLoc.location_id
+                      // Find items that belong to this location (check both location_id and pickup_location_id)
+                      const locItems = items.filter(item =>
+                        item.location_id === locId || item.pickup_location_id === locId
                       )
-                    })}
-                  </div>
+                      locItems.forEach(item => assignedItemIds.add(item.id))
+
+                      locationGroups.push({
+                        locId,
+                        location: orderLoc.location,
+                        orderLoc,
+                        items: locItems
+                      })
+                    })
+
+                    // Find unassigned items (items not matched to any order_location)
+                    const unassignedItems = items.filter(item => !assignedItemIds.has(item.id))
+
+                    // If there are unassigned items but we have order_locations,
+                    // add them to the first location group (or create unassigned group if no order_locations)
+                    if (unassignedItems.length > 0) {
+                      if (orderLocations.length > 0) {
+                        // Add unassigned items to first location group
+                        locationGroups[0].items = [...locationGroups[0].items, ...unassignedItems]
+                      } else {
+                        // No order_locations exist, create an unassigned group with order-level tracking
+                        locationGroups.push({
+                          locId: 'unassigned',
+                          location: null,
+                          orderLoc: {
+                            fulfillment_status: order?.status || 'pending',
+                            tracking_number: order?.tracking_number,
+                            shipping_carrier: order?.shipping_carrier,
+                            tracking_url: order?.tracking_url,
+                            shipped_at: null
+                          },
+                          items: unassignedItems
+                        })
+                      }
+                    }
+
+                    // If no order_locations exist but we have items, show them with order-level tracking
+                    if (locationGroups.length === 0 && items.length > 0) {
+                      locationGroups.push({
+                        locId: 'unassigned',
+                        location: null,
+                        orderLoc: {
+                          fulfillment_status: order?.status || 'pending',
+                          tracking_number: order?.tracking_number,
+                          shipping_carrier: order?.shipping_carrier,
+                          tracking_url: order?.tracking_url,
+                          shipped_at: null
+                        },
+                        items: items
+                      })
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {locationGroups.map(({ locId, location, orderLoc, items: locItems }) => {
+                          // Use location's own status/tracking - each location is independent
+                          const locationStatus = orderLoc?.fulfillment_status || 'pending'
+                          const locationTracking = orderLoc?.tracking_number
+                          const locationCarrier = orderLoc?.shipping_carrier
+                          const locationTrackingUrl = orderLoc?.tracking_url
+                          const locationShippedAt = orderLoc?.shipped_at
+
+                          return (
+                          <div key={locId} className="border border-zinc-800 overflow-hidden">
+                            {/* Location Header with Tracking */}
+                            <div className="bg-zinc-900/80 p-4 border-b border-zinc-800">
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="flex items-center gap-3">
+                                  <div className={`p-2 ${locationStatus === 'shipped' || locationStatus === 'fulfilled' || locationStatus === 'delivered' || locationStatus === 'completed' ? 'bg-emerald-500/10' : 'bg-zinc-800'}`}>
+                                    <MapPin className={`w-4 h-4 ${locationStatus === 'shipped' || locationStatus === 'fulfilled' || locationStatus === 'delivered' || locationStatus === 'completed' ? 'text-emerald-400' : 'text-zinc-400'}`} />
+                                  </div>
+                                  <div>
+                                    <p className="text-white font-semibold">
+                                      {location?.name || 'Unassigned Location'}
+                                    </p>
+                                    {location?.address_line1 && (
+                                      <p className="text-xs text-zinc-500 mt-0.5">
+                                        {location.address_line1}, {location.city}, {location.state}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                <span className={`text-[10px] px-3 py-1.5 font-bold uppercase tracking-wide ${
+                                  locationStatus === 'fulfilled' || locationStatus === 'shipped' || locationStatus === 'delivered' || locationStatus === 'completed' ? 'text-emerald-400 bg-emerald-400/10' :
+                                  locationStatus === 'unfulfilled' || locationStatus === 'pending' ? 'text-amber-400 bg-amber-400/10' :
+                                  locationStatus === 'processing' ? 'text-blue-400 bg-blue-400/10' :
+                                  'text-zinc-400 bg-zinc-400/10'
+                                }`}>
+                                  {locationStatus}
+                                </span>
+                              </div>
+
+                              {/* Tracking Info Row */}
+                              {(locationTracking || locationCarrier || locationShippedAt) && (
+                                <div className="flex items-center gap-6 mt-3 pt-3 border-t border-zinc-800/50 text-xs">
+                                  {locationCarrier && (
+                                    <div className="flex items-center gap-2">
+                                      <Truck className="w-3.5 h-3.5 text-zinc-500" />
+                                      <span className="text-zinc-400">Carrier:</span>
+                                      <span className="text-white uppercase font-medium">{locationCarrier}</span>
+                                    </div>
+                                  )}
+                                  {locationTracking && (
+                                    <div className="flex items-center gap-2">
+                                      <Package className="w-3.5 h-3.5 text-zinc-500" />
+                                      <span className="text-zinc-400">Tracking:</span>
+                                      {locationTrackingUrl ? (
+                                        <a href={locationTrackingUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline font-mono flex items-center gap-1">
+                                          {locationTracking}
+                                          <ExternalLink className="w-3 h-3" />
+                                        </a>
+                                      ) : (
+                                        <span className="text-white font-mono">{locationTracking}</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {locationShippedAt && (
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="w-3.5 h-3.5 text-zinc-500" />
+                                      <span className="text-zinc-400">Shipped:</span>
+                                      <span className="text-white">{format(new Date(locationShippedAt), 'MMM d, h:mm a')}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Items in this location */}
+                            <div className="divide-y divide-zinc-800/50">
+                              {locItems.map((item) => {
+                                const isRemoved = itemsToRemove.has(item.id)
+                                const qty = itemQuantities[item.id] ?? item.quantity
+                                const price = itemPrices[item.id] ?? item.unit_price
+                                const lineTotal = qty * price
+
+                                return (
+                                  <div
+                                    key={item.id}
+                                    className={`flex items-center gap-4 p-4 ${
+                                      isRemoved ? 'bg-red-950/20' : 'bg-zinc-950/50 hover:bg-zinc-900/30'
+                                    } transition-all`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <p className={`text-sm font-medium ${isRemoved ? 'line-through text-zinc-600' : 'text-white'}`}>
+                                        {item.product_name}
+                                      </p>
+                                      {item.product_sku && <p className="text-[11px] text-zinc-600 mt-0.5 font-mono">SKU: {item.product_sku}</p>}
+                                    </div>
+
+                                    {isRemoved ? (
+                                      <button onClick={() => handleRestoreItem(item.id)} className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 text-zinc-300 text-xs hover:bg-zinc-700">
+                                        <RotateCcw className="w-3 h-3" />
+                                        Restore
+                                      </button>
+                                    ) : (
+                                      <>
+                                        <div className="w-24">
+                                          <div className="relative">
+                                            <DollarSign className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-zinc-600" />
+                                            <input
+                                              type="number"
+                                              step="0.01"
+                                              value={price}
+                                              onChange={(e) => handlePriceChange(item.id, e.target.value)}
+                                              className="w-full pl-6 pr-2 py-2 bg-zinc-800 border border-zinc-700 text-white text-sm text-right focus:outline-none focus:border-zinc-600 tabular-nums"
+                                            />
+                                          </div>
+                                        </div>
+
+                                        <div className="flex items-center bg-zinc-800 border border-zinc-700">
+                                          <button onClick={() => handleQuantityChange(item.id, -1)} className="p-2 text-zinc-400 hover:text-white">
+                                            <Minus className="w-3.5 h-3.5" />
+                                          </button>
+                                          <span className="w-8 text-center text-white text-sm font-medium tabular-nums">{qty}</span>
+                                          <button onClick={() => handleQuantityChange(item.id, 1)} className="p-2 text-zinc-400 hover:text-white">
+                                            <Plus className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+
+                                        <div className="w-20 text-right">
+                                          <p className="text-sm text-white font-medium tabular-nums">${lineTotal.toFixed(2)}</p>
+                                        </div>
+
+                                        <button onClick={() => handleRemoveItem(item.id)} className="p-2 text-zinc-600 hover:text-red-400">
+                                          <Trash2 className="w-4 h-4" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                )
+                              })}
+                            </div>
+
+                            {/* Location Subtotal */}
+                            <div className="bg-zinc-900/50 px-4 py-3 border-t border-zinc-800 flex justify-between items-center">
+                              <span className="text-xs text-zinc-500 uppercase tracking-wider">
+                                {locItems.length} item{locItems.length !== 1 ? 's' : ''} from this location
+                              </span>
+                              <span className="text-sm text-white font-semibold tabular-nums">
+                                ${locItems.reduce((sum, item) => {
+                                  const qty = itemQuantities[item.id] ?? item.quantity
+                                  const price = itemPrices[item.id] ?? item.unit_price
+                                  return sum + (qty * price)
+                                }, 0).toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                          )
+                        })}
+                      </div>
+                    )
+                  })()}
 
                   <div className="p-6 bg-zinc-900/50 border border-zinc-800 space-y-3">
                     <h4 className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider mb-2">Order Totals</h4>
@@ -2831,6 +3266,67 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
           )}
         </div>
       </div>
+
+      {/* Email Preview Modal */}
+      {selectedEmail && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/80 z-[60]"
+            onClick={() => setSelectedEmail(null)}
+          />
+          <div className="fixed inset-8 md:inset-16 lg:inset-24 bg-zinc-950 border border-zinc-800 z-[60] flex flex-col overflow-hidden shadow-2xl">
+            {/* Email Preview Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-base font-medium text-white truncate">
+                  {selectedEmail.subject}
+                </h3>
+                <div className="flex items-center gap-3 mt-1 text-xs text-zinc-500">
+                  <span>To: {selectedEmail.to_email}</span>
+                  {selectedEmail.sent_at && (
+                    <span>Sent: {format(new Date(selectedEmail.sent_at), 'MMM d, yyyy h:mm a')}</span>
+                  )}
+                  <span className={`inline-flex px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                    selectedEmail.status === 'delivered' ? 'text-emerald-400 bg-emerald-400/10' :
+                    selectedEmail.status === 'opened' ? 'text-purple-400 bg-purple-400/10' :
+                    'text-zinc-400 bg-zinc-400/10'
+                  }`}>
+                    {selectedEmail.status}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedEmail(null)}
+                className="p-2 text-zinc-500 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Email Content */}
+            <div className="flex-1 overflow-auto bg-white">
+              {loadingEmail ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="w-6 h-6 text-zinc-400 animate-spin" />
+                </div>
+              ) : emailContent ? (
+                <iframe
+                  srcDoc={emailContent}
+                  className="w-full h-full border-0"
+                  title="Email Preview"
+                  sandbox="allow-same-origin"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-64 text-zinc-500 bg-zinc-900">
+                  <Mail className="w-12 h-12 mb-4 text-zinc-600" />
+                  <p className="text-sm">Email content not available</p>
+                  <p className="text-xs text-zinc-600 mt-1">The email HTML content could not be retrieved from Resend</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </>
   )
 }

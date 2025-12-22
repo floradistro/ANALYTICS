@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     // Get scan analytics for the period
     let scansQuery = supabase
       .from('qr_scans')
-      .select('*')
+      .select('id, qr_code_id, vendor_id, visitor_id, city, region, country, device_type, browser_name, os_name, is_first_scan, scanned_at, latitude, longitude')
       .eq('vendor_id', vendorId)
       .gte('scanned_at', startDate.toISOString())
       .order('scanned_at', { ascending: false })
@@ -113,7 +113,7 @@ export async function GET(request: NextRequest) {
 
     // Calculate aggregated stats
     const totalScans = scans?.length || 0
-    const uniqueScans = scans?.filter(s => s.is_unique).length || 0
+    const uniqueScans = scans?.filter(s => s.is_first_scan).length || 0
 
     // Geographic breakdown
     const byCity: Record<string, number> = {}
@@ -185,14 +185,14 @@ export async function GET(request: NextRequest) {
       .map(([type, data]) => ({ type, ...data }))
       .sort((a, b) => b.totalScans - a.totalScans)
 
-    // Recent scans (last 20)
+    // Recent scans (last 20) - map is_first_scan to is_unique for frontend consistency
     const recentScans = scans?.slice(0, 20).map(scan => ({
       id: scan.id,
       qr_code_id: scan.qr_code_id,
       city: scan.city,
       country: scan.country,
       device_type: scan.device_type,
-      is_unique: scan.is_unique,
+      is_unique: scan.is_first_scan ?? false,
       scanned_at: scan.scanned_at
     })) || []
 
