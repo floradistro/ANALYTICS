@@ -1,14 +1,10 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { QrCode, Package, ShoppingBag, MapPin, Megaphone, Eye, Users, TrendingUp, Calendar, ExternalLink, BarChart3 } from 'lucide-react'
+import { QrCode, Package, ShoppingBag, MapPin, Megaphone, Eye, Users, TrendingUp, Calendar, ExternalLink } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
-import { useDashboardStore } from '@/stores/dashboard.store'
 import { MetricCard } from '@/components/ui/MetricCard'
-import { FilterBar } from '@/components/filters/FilterBar'
-import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
-import { getDateRangeForQuery } from '@/lib/date-utils'
 
 type QRType = 'all' | 'product' | 'sale' | 'order' | 'marketing'
 
@@ -53,7 +49,6 @@ const TAB_CONFIG: { key: QRType; label: string; icon: typeof QrCode }[] = [
 
 export default function QRDashboard() {
   const { vendorId } = useAuthStore()
-  const { dateRange } = useDashboardStore()
 
   const [activeTab, setActiveTab] = useState<QRType>('all')
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
@@ -71,52 +66,26 @@ export default function QRDashboard() {
     setLoading(true)
 
     try {
-      const { start, end } = getDateRangeForQuery()
-
-      let query = supabase
-        .from('qr_codes')
-        .select('*')
-        .eq('vendor_id', vendorId)
-        .order('created_at', { ascending: false })
-
+      const params = new URLSearchParams({ vendor_id: vendorId })
       if (activeTab !== 'all') {
-        query = query.eq('type', activeTab)
+        params.set('type', activeTab)
       }
 
-      const { data, error } = await query
+      const res = await fetch(`/api/qr/list?${params}`)
+      const data = await res.json()
 
-      if (error) {
-        console.error('Error fetching QR codes:', error)
+      if (!res.ok || !data.success) {
+        console.error('Error fetching QR codes:', data.error)
         return
       }
 
-      setQrCodes(data || [])
-
-      // Calculate stats
-      const allCodes = data || []
-      const totalScans = allCodes.reduce((sum, qr) => sum + (qr.total_scans || 0), 0)
-      const uniqueScans = allCodes.reduce((sum, qr) => sum + (qr.unique_scans || 0), 0)
-
-      const byType: Record<string, number> = {}
-      allCodes.forEach((qr) => {
-        byType[qr.type] = (byType[qr.type] || 0) + 1
-      })
-
-      // Calculate recent scans from qr_codes that have been scanned in last 7 days
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-
-      // Count codes with recent scans based on last_scanned_at
-      const recentlyScanned = allCodes.filter(qr =>
-        qr.last_scanned_at && new Date(qr.last_scanned_at) >= sevenDaysAgo
-      ).length
-
-      setStats({
-        total: allCodes.length,
-        totalScans,
-        uniqueScans,
-        byType,
-        recentScans: recentlyScanned,
+      setQrCodes(data.qr_codes || [])
+      setStats(data.stats || {
+        total: 0,
+        totalScans: 0,
+        uniqueScans: 0,
+        byType: {},
+        recentScans: 0,
       })
     } catch (err) {
       console.error('Failed to fetch QR codes:', err)
