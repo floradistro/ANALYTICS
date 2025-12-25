@@ -4,13 +4,17 @@ import { Resend } from 'resend'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-const resendApiKey = process.env.RESEND_API_KEY!
+const resendApiKey = process.env.RESEND_API_KEY || ''
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey)
-const resend = new Resend(resendApiKey)
+const resend = resendApiKey ? new Resend(resendApiKey) : null
 
 export async function POST(request: NextRequest) {
   try {
+    if (!resend) {
+      return NextResponse.json({ error: 'Email service not configured' }, { status: 503 })
+    }
+
     const { campaignId } = await request.json()
 
     if (!campaignId) {
