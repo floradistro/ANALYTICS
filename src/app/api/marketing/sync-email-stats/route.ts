@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     const { storeId } = await request.json()
 
     if (!storeId) {
-      return NextResponse.json({ error: 'vendorId required' }, { status: 400 })
+      return NextResponse.json({ error: 'storeId required' }, { status: 400 })
     }
 
     // Get email sends that need status updates

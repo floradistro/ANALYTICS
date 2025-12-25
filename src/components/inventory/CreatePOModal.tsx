@@ -318,7 +318,7 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
 
       // Call atomic database function to create PO + items in single transaction
       const { data: result, error: rpcError } = await supabase.rpc('create_purchase_order_atomic', {
-        p_store_id: storeId,
+        p_vendor_id: storeId,
         p_po_type: 'inbound',
         p_items: itemsJson,
         p_supplier_id: supplierId || null,

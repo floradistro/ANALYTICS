@@ -227,9 +227,9 @@ export class EmailService {
 
   static async getStoreSettings(storeId: string): Promise<StoreEmailSettings | null> {
     const { data, error } = await supabase
-      .from('store_email_settings')
+      .from('vendor_email_settings')
       .select('*')
-      .eq('store_id', storeId)
+      .eq('vendor_id', storeId)
       .single()
 
     if (error) {
@@ -251,10 +251,10 @@ export class EmailService {
     settings: Partial<StoreEmailSettings>
   ): Promise<StoreEmailSettings | null> {
     const { data, error } = await supabase
-      .from('store_email_settings')
+      .from('vendor_email_settings')
       .upsert(
-        { store_id: storeId, ...settings, updated_at: new Date().toISOString() },
-        { onConflict: 'store_id' }
+        { vendor_id: storeId, ...settings, updated_at: new Date().toISOString() },
+        { onConflict: 'vendor_id' }
       )
       .select()
       .single()

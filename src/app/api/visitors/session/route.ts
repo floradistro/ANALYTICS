@@ -10,10 +10,10 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get('sessionId')
-    const storeId = searchParams.get('vendorId')
+    const storeId = searchParams.get('storeId') || searchParams.get('vendorId')
 
     if (!sessionId || !storeId) {
-      return NextResponse.json({ error: 'Missing sessionId or vendorId' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing sessionId or storeId' }, { status: 400 })
     }
 
     // Fetch page views for this session

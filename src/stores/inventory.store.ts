@@ -495,7 +495,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       const idempotencyKey = `adj-${input.product_id}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
 
       const { data, error } = await supabase.rpc('process_inventory_adjustment', {
-        p_store_id: storeId,
+        p_vendor_id: storeId,
         p_product_id: input.product_id,
         p_location_id: input.location_id,
         p_adjustment_type: input.adjustment_type,

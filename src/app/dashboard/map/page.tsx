@@ -165,8 +165,8 @@ export default function MapDashboardPage() {
       return
     }
     try {
-      console.log('[Map] Fetching journeys for vendor:', storeId)
-      const response = await fetch(`/api/shipments/journeys?vendorId=${storeId}&limit=50`)
+      console.log('[Map] Fetching journeys for store:', storeId)
+      const response = await fetch(`/api/shipments/journeys?storeId=${storeId}&limit=50`)
       const data = await response.json()
       console.log('[Map] Journeys response:', data.journeys?.length || 0, 'journeys,', data.totalFacilities || 0, 'facilities')
       if (data.journeys) {

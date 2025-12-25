@@ -40,10 +40,10 @@ export async function GET(request: NextRequest) {
       geoAccuracyStats,
     ] = await Promise.all([
       // Total visitors with unique counts
-      supabase.rpc('get_visitor_stats', { p_store_id: storeId, p_start: start, p_end: end }),
+      supabase.rpc('get_visitor_stats', { p_vendor_id: storeId, p_start: start, p_end: end }),
 
       // Page view stats
-      supabase.rpc('get_pageview_stats', { p_store_id: storeId, p_start: start, p_end: end }),
+      supabase.rpc('get_pageview_stats', { p_vendor_id: storeId, p_start: start, p_end: end }),
 
       // Top pages (aggregated)
       supabase

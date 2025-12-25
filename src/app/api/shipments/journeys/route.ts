@@ -46,11 +46,11 @@ function normalizeTracking(num: string | null): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const storeId = searchParams.get('vendorId')
+    const storeId = searchParams.get('storeId') || searchParams.get('vendorId')
     const limit = parseInt(searchParams.get('limit') || '50')
 
     if (!storeId) {
-      return NextResponse.json({ error: 'Missing vendorId' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing storeId' }, { status: 400 })
     }
 
     // 1. Get all tracking data from shipment_tracking
