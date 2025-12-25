@@ -46,7 +46,7 @@ function normalizeTracking(num: string | null): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const storeId = searchParams.get('storeId') || searchParams.get('vendorId')
+    const storeId = searchParams.get('storeId')
     const limit = parseInt(searchParams.get('limit') || '50')
 
     if (!storeId) {

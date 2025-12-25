@@ -57,9 +57,6 @@ export interface StoreEmailSettings {
   updated_at?: string
 }
 
-// Backward compatibility alias
-export type VendorEmailSettings = StoreEmailSettings
-
 export interface SendEmailParams {
   to: string
   toName?: string
@@ -241,11 +238,6 @@ export class EmailService {
     return data
   }
 
-  // Backward compatibility alias
-  static async getVendorSettings(storeId: string): Promise<StoreEmailSettings | null> {
-    return this.getStoreSettings(storeId)
-  }
-
   static async updateStoreSettings(
     storeId: string,
     settings: Partial<StoreEmailSettings>
@@ -267,14 +259,6 @@ export class EmailService {
     return data
   }
 
-  // Backward compatibility alias
-  static async updateVendorSettings(
-    storeId: string,
-    settings: Partial<StoreEmailSettings>
-  ): Promise<StoreEmailSettings | null> {
-    return this.updateStoreSettings(storeId, settings)
-  }
-
   // ===========================================================================
   // TEST EMAILS
   // ===========================================================================
@@ -283,11 +267,9 @@ export class EmailService {
     storeId: string
     to: string
     templateSlug?: TemplateSlug
-    // Backward compat
-    vendorId?: string
   }): Promise<SendEmailResponse> {
     const template = params.templateSlug || 'welcome'
-    const storeId = params.storeId || params.vendorId!
+    const storeId = params.storeId
 
     const testData: Record<TemplateSlug, Record<string, unknown>> = {
       receipt: {

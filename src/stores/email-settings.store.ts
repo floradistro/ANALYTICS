@@ -1,14 +1,14 @@
 /**
  * Email Settings Store
- * Manages vendor email configuration state
+ * Manages store email configuration state
  */
 
 import { create } from 'zustand'
-import { EmailService, VendorEmailSettings, TemplateSlug } from '@/services/email.service'
+import { EmailService, StoreEmailSettings, TemplateSlug } from '@/services/email.service'
 
 interface EmailSettingsState {
   // State
-  settings: VendorEmailSettings | null
+  settings: StoreEmailSettings | null
   isLoading: boolean
   isSaving: boolean
   isSendingTest: boolean
@@ -17,7 +17,7 @@ interface EmailSettingsState {
 
   // Actions
   loadSettings: (storeId: string) => Promise<void>
-  updateSettings: (storeId: string, updates: Partial<VendorEmailSettings>) => Promise<boolean>
+  updateSettings: (storeId: string, updates: Partial<StoreEmailSettings>) => Promise<boolean>
   sendTestEmail: (storeId: string, to: string, templateSlug?: TemplateSlug) => Promise<boolean>
   clearError: () => void
   reset: () => void
@@ -36,7 +36,7 @@ export const useEmailSettingsStore = create<EmailSettingsState>((set) => ({
     set({ isLoading: true, error: null })
 
     try {
-      const settings = await EmailService.getVendorSettings(storeId)
+      const settings = await EmailService.getStoreSettings(storeId)
       set({ settings, isLoading: false })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load email settings'
@@ -45,11 +45,11 @@ export const useEmailSettingsStore = create<EmailSettingsState>((set) => ({
     }
   },
 
-  updateSettings: async (storeId: string, updates: Partial<VendorEmailSettings>) => {
+  updateSettings: async (storeId: string, updates: Partial<StoreEmailSettings>) => {
     set({ isSaving: true, error: null })
 
     try {
-      const updatedSettings = await EmailService.updateVendorSettings(storeId, updates)
+      const updatedSettings = await EmailService.updateStoreSettings(storeId, updates)
 
       if (updatedSettings) {
         set({ settings: updatedSettings, isSaving: false })

@@ -149,7 +149,7 @@ export default function ShipmentsPage() {
       return
     }
 
-    console.log('Fetching tracking data for vendor:', storeId)
+    console.log('Fetching tracking data for store:', storeId)
 
     try {
       // First check all data in table (for debugging)
@@ -164,7 +164,7 @@ export default function ShipmentsPage() {
         .select('*')
         .eq('store_id', storeId)
 
-      console.log('Tracking data for this vendor:', data, 'Error:', error)
+      console.log('Tracking data for this store:', data, 'Error:', error)
 
       if (error) {
         // Table might not exist yet

@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Accept both snake_case and camelCase (Swift sends camelCase)
-    const store_id = body.store_id || body.vendorId
+    const store_id = body.store_id || body.storeId
     const code = body.code
     const name = body.name
     const type = body.type
