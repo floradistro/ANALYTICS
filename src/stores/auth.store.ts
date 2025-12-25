@@ -4,21 +4,31 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { supabase } from '@/lib/supabase'
 import type { User, Session } from '@supabase/supabase-js'
-import type { Vendor } from '@/types/database'
+
+// Store type - matches the stores table in the database
+interface Store {
+  id: string
+  store_name: string | null
+  logo_url: string | null
+  ecommerce_url: string | null
+  free_shipping_enabled: boolean | null
+  free_shipping_threshold: number | null
+  default_shipping_cost: number | null
+}
 
 interface AuthState {
   user: User | null
   session: Session | null
-  vendor: Vendor | null
-  vendorId: string | null
+  store: Store | null
+  storeId: string | null
   userId: string | null // Database user ID (not auth user id)
   isLoading: boolean
   error: string | null
 
   setUser: (user: User | null) => void
   setSession: (session: Session | null) => void
-  setVendor: (vendor: Vendor | null) => void
-  setVendorId: (vendorId: string | null) => void
+  setStore: (store: Store | null) => void
+  setStoreId: (storeId: string | null) => void
   setUserId: (userId: string | null) => void
   setLoading: (loading: boolean) => void
   setError: (error: string | null) => void
@@ -33,16 +43,16 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       session: null,
-      vendor: null,
-      vendorId: null,
+      store: null,
+      storeId: null,
       userId: null,
       isLoading: true,
       error: null,
 
       setUser: (user) => set({ user }),
       setSession: (session) => set({ session }),
-      setVendor: (vendor) => set({ vendor }),
-      setVendorId: (vendorId) => set({ vendorId }),
+      setStore: (store) => set({ store }),
+      setStoreId: (storeId) => set({ storeId }),
       setUserId: (userId) => set({ userId }),
       setLoading: (isLoading) => set({ isLoading }),
       setError: (error) => set({ error }),
@@ -62,10 +72,10 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (data.user && data.session) {
-            // Get user's vendor info - use auth_user_id to match Supabase Auth user
+            // Get user's store info - use auth_user_id to match Supabase Auth user
             const { data: userData, error: userError } = await supabase
               .from('users')
-              .select('id, vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
+              .select('id, store_id, stores(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
               .eq('auth_user_id', data.user.id)
               .maybeSingle()
 
@@ -75,20 +85,20 @@ export const useAuthStore = create<AuthState>()(
               return false
             }
 
-            if (!userData?.vendor_id) {
-              set({ error: 'No vendor associated with this account', isLoading: false })
+            if (!userData?.store_id) {
+              set({ error: 'No store associated with this account', isLoading: false })
               return false
             }
 
-            // Extract vendor from joined data
-            const vendorData = (userData as any).vendors as Vendor | null
+            // Extract store from joined data
+            const storeData = (userData as any).stores as Store | null
 
             set({
               user: data.user,
               session: data.session,
-              vendorId: userData.vendor_id,
+              storeId: userData.store_id,
               userId: userData.id,
-              vendor: vendorData,
+              store: storeData,
               isLoading: false,
             })
 
@@ -109,8 +119,8 @@ export const useAuthStore = create<AuthState>()(
         set({
           user: null,
           session: null,
-          vendor: null,
-          vendorId: null,
+          store: null,
+          storeId: null,
           userId: null,
           error: null,
         })
@@ -125,19 +135,19 @@ export const useAuthStore = create<AuthState>()(
           if (session?.user) {
             const { data: userData } = await supabase
               .from('users')
-              .select('id, vendor_id, vendors(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
+              .select('id, store_id, stores(id, store_name, logo_url, ecommerce_url, free_shipping_enabled, free_shipping_threshold, default_shipping_cost)')
               .eq('auth_user_id', session.user.id)
               .maybeSingle()
 
-            if (userData?.vendor_id) {
-              const vendorData = (userData as any).vendors as Vendor | null
+            if (userData?.store_id) {
+              const storeData = (userData as any).stores as Store | null
 
               set({
                 user: session.user,
                 session,
-                vendorId: userData.vendor_id,
+                storeId: userData.store_id,
                 userId: userData.id,
-                vendor: vendorData,
+                store: storeData,
                 isLoading: false,
               })
               return
@@ -153,7 +163,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'auth-storage',
-      partialize: (state) => ({ vendorId: state.vendorId, userId: state.userId }),
+      partialize: (state) => ({ storeId: state.storeId, userId: state.userId }),
     }
   )
 )

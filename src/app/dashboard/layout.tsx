@@ -50,12 +50,12 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex min-h-screen bg-black">
+    <div className="min-h-screen bg-black">
       <Sidebar
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
-      <div className="flex-1 flex flex-col">
+      <div className={`flex flex-col min-h-screen transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-14' : 'lg:ml-48'}`}>
         {/* Hide header on map page for full immersion */}
         {!isMapPage && <Header />}
         <main className={`flex-1 ${isMapPage ? 'p-0' : 'p-4 lg:p-6'} overflow-auto`}>

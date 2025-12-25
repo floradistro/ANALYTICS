@@ -25,7 +25,7 @@ interface TopProduct {
 }
 
 export default function SalesAnalyticsPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange, filters } = useDashboardStore()
 
   // Centralized orders store - SINGLE SOURCE OF TRUTH
@@ -54,14 +54,14 @@ export default function SalesAnalyticsPage() {
 
   // Fetch orders when vendor/date changes
   useEffect(() => {
-    if (vendorId) {
-      fetchOrders(vendorId)
+    if (storeId) {
+      fetchOrders(storeId)
     }
-  }, [vendorId, dateRange, fetchOrders])
+  }, [storeId, dateRange, fetchOrders])
 
   // Fetch top products (requires order_items join)
   const fetchTopProducts = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     const paidOrders = getPaidOrders()
     const orderIds = paidOrders.map((o) => o.id)
@@ -122,11 +122,11 @@ export default function SalesAnalyticsPage() {
     } catch (err) {
       console.error('Failed to fetch top products:', err)
     }
-  }, [vendorId, getPaidOrders])
+  }, [storeId, getPaidOrders])
 
   // Fetch category sales (requires order_items + products + categories join)
   const fetchCategorySales = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     const paidOrders = getPaidOrders()
@@ -143,7 +143,7 @@ export default function SalesAnalyticsPage() {
       const { data: categoriesData } = await supabase
         .from('categories')
         .select('id, name')
-        .or(`vendor_id.is.null,vendor_id.eq.${vendorId}`)
+        .or(`store_id.is.null,store_id.eq.${storeId}`)
 
       const categoryLookup = new Map<string, string>()
       categoriesData?.forEach((cat) => categoryLookup.set(cat.id, cat.name))
@@ -152,7 +152,7 @@ export default function SalesAnalyticsPage() {
       const { data: productsData } = await supabase
         .from('products')
         .select('id, primary_category_id')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
 
       const productCategoryMap = new Map<string, string>()
       productsData?.forEach((p) => {
@@ -214,15 +214,15 @@ export default function SalesAnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, getPaidOrders])
+  }, [storeId, getPaidOrders])
 
   // Fetch additional data when orders are loaded
   useEffect(() => {
-    if (vendorId && !ordersLoading) {
+    if (storeId && !ordersLoading) {
       fetchTopProducts()
       fetchCategorySales()
     }
-  }, [vendorId, ordersLoading, fetchTopProducts, fetchCategorySales])
+  }, [storeId, ordersLoading, fetchTopProducts, fetchCategorySales])
 
   // Compute values from centralized store
   const netRevenue = getNetRevenue()

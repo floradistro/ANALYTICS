@@ -47,7 +47,7 @@ interface TaxRate {
 // Extended Location type to include settings JSONB
 interface LocationWithSettings {
   id: string
-  vendor_id: string
+  store_id: string
   name: string
   address: string | null
   city: string | null
@@ -111,42 +111,42 @@ const NAV_ITEMS: NavItem[] = [
 // =============================================================================
 
 export default function SettingsPage() {
-  const { vendorId, setVendor } = useAuthStore()
+  const { storeId, setStore } = useAuthStore()
   const [activeSection, setActiveSection] = useState<SettingsSection>('store')
   const [locations, setLocations] = useState<LocationWithSettings[]>([])
-  const [vendor, setLocalVendor] = useState<any>(null)
+  const [store, setLocalStore] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [vendorLoading, setVendorLoading] = useState(true)
+  const [storeLoading, setStoreLoading] = useState(true)
 
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       loadAllData()
     }
-  }, [vendorId])
+  }, [storeId])
 
   const loadAllData = async () => {
-    if (!vendorId) return
-    setVendorLoading(true)
+    if (!storeId) return
+    setStoreLoading(true)
     setLoading(true)
 
     try {
-      // Fetch vendor and locations in parallel
-      const [vendorResult, locationsResult] = await Promise.all([
-        supabase.from('vendors').select('*').eq('id', vendorId).single(),
-        supabase.from('locations').select('*').eq('vendor_id', vendorId).order('is_primary', { ascending: false })
+      // Fetch store and locations in parallel
+      const [storeResult, locationsResult] = await Promise.all([
+        supabase.from('stores').select('*').eq('id', storeId).single(),
+        supabase.from('locations').select('*').eq('store_id', storeId).order('is_primary', { ascending: false })
       ])
 
-      if (vendorResult.error) {
-        console.error('[Settings] Vendor error:', vendorResult.error)
+      if (storeResult.error) {
+        console.error('[Settings] Vendor error:', storeResult.error)
       } else {
-        console.log('[Settings] Loaded vendor:', vendorResult.data)
+        console.log('[Settings] Loaded store:', storeResult.data)
         console.log('[Settings] Shipping config:', {
-          default_shipping_cost: vendorResult.data?.default_shipping_cost,
-          free_shipping_enabled: vendorResult.data?.free_shipping_enabled,
-          free_shipping_threshold: vendorResult.data?.free_shipping_threshold
+          default_shipping_cost: storeResult.data?.default_shipping_cost,
+          free_shipping_enabled: storeResult.data?.free_shipping_enabled,
+          free_shipping_threshold: storeResult.data?.free_shipping_threshold
         })
-        setLocalVendor(vendorResult.data)
-        setVendor(vendorResult.data)
+        setLocalStore(storeResult.data)
+        setStore(storeResult.data)
       }
 
       if (locationsResult.error) {
@@ -169,20 +169,20 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('[Settings] Failed to load data:', error)
     } finally {
-      setVendorLoading(false)
+      setStoreLoading(false)
       setLoading(false)
     }
   }
 
   const fetchLocations = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     try {
       const { data, error } = await supabase
         .from('locations')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('is_primary', { ascending: false })
 
       if (error) throw error
@@ -195,13 +195,13 @@ export default function SettingsPage() {
     }
   }
 
-  const handleVendorUpdate = (updatedVendor: any) => {
-    setLocalVendor(updatedVendor)
-    setVendor(updatedVendor)
+  const handleStoreUpdate = (updatedVendor: any) => {
+    setLocalStore(updatedVendor)
+    setStore(updatedVendor)
   }
 
-  // Show loading while waiting for vendorId from auth store
-  if (!vendorId) {
+  // Show loading while waiting for storeId from auth store
+  if (!storeId) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -215,21 +215,21 @@ export default function SettingsPage() {
   const renderContent = () => {
     switch (activeSection) {
       case 'store':
-        return <StoreSettings vendor={vendor} vendorId={vendorId} setVendor={handleVendorUpdate} />
+        return <StoreSettings store={store} storeId={storeId} setStore={handleStoreUpdate} />
       case 'locations':
-        return <LocationsSettings locations={locations} loading={loading} onRefresh={fetchLocations} vendorId={vendorId} />
+        return <LocationsSettings locations={locations} loading={loading} onRefresh={fetchLocations} storeId={storeId} />
       case 'registers':
-        return <RegistersSettings vendorId={vendorId} locations={locations} />
+        return <RegistersSettings storeId={storeId} locations={locations} />
       case 'payments':
-        return <PaymentsSettings vendorId={vendorId} />
+        return <PaymentsSettings storeId={storeId} />
       case 'shipping':
-        return <ShippingSettings vendor={vendor} vendorId={vendorId} setVendor={handleVendorUpdate} />
+        return <ShippingSettings store={store} storeId={storeId} setStore={handleStoreUpdate} />
       case 'email':
-        return <EmailSettings vendorId={vendorId} />
+        return <EmailSettings storeId={storeId} />
       case 'team':
-        return <TeamSettings vendorId={vendorId} />
+        return <TeamSettings storeId={storeId} />
       case 'suppliers':
-        return <SuppliersSettings vendorId={vendorId} />
+        return <SuppliersSettings storeId={storeId} />
       case 'data':
         return <DataToolsSettings />
       default:
@@ -289,13 +289,13 @@ export default function SettingsPage() {
 // =============================================================================
 
 function StoreSettings({
-  vendor,
-  vendorId,
-  setVendor,
+  store,
+  storeId,
+  setStore,
 }: {
-  vendor: any
-  vendorId: string | null
-  setVendor: (v: any) => void
+  store: any
+  storeId: string | null
+  setStore: (v: any) => void
 }) {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -305,16 +305,16 @@ function StoreSettings({
   })
 
   useEffect(() => {
-    if (vendor) {
-      console.log('[StoreSettings] Vendor loaded:', vendor)
+    if (store) {
+      console.log('[StoreSettings] Store loaded:', store)
       setFormData({
-        store_name: vendor.store_name || '',
-        ecommerce_url: vendor.ecommerce_url || '',
+        store_name: store.store_name || '',
+        ecommerce_url: store.ecommerce_url || '',
       })
     }
-  }, [vendor])
+  }, [store])
 
-  if (!vendor) {
+  if (!store) {
     return (
       <div className="space-y-6">
         <SectionHeader title="Store Settings" description="Manage your business details and branding" />
@@ -329,24 +329,24 @@ function StoreSettings({
   }
 
   const handleSave = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setSaving(true)
     setMessage(null)
 
     try {
       const { data, error } = await supabase
-        .from('vendors')
+        .from('stores')
         .update({
           store_name: formData.store_name,
           ecommerce_url: formData.ecommerce_url,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', vendorId)
+        .eq('id', storeId)
         .select()
         .single()
 
       if (error) throw error
-      setVendor(data)
+      setStore(data)
       setMessage({ type: 'success', text: 'Store settings saved' })
     } catch (error) {
       console.error('Failed to save:', error)
@@ -474,12 +474,12 @@ function LocationsSettings({
   locations,
   loading,
   onRefresh,
-  vendorId,
+  storeId,
 }: {
   locations: LocationWithSettings[]
   loading: boolean
   onRefresh: () => void
-  vendorId: string | null
+  storeId: string | null
 }) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -559,8 +559,34 @@ function LocationsSettings({
     }
   }
 
+  const handleDelete = async (locationId: string, locationName: string) => {
+    if (!confirm(`Delete "${locationName}"? This cannot be undone.`)) return
+    setSaving(true)
+    try {
+      const { error, status, statusText } = await supabase.from('locations').delete().eq('id', locationId)
+      if (error) {
+        console.error('[LocationsSettings] Delete error:', { error, status, statusText, code: error.code, message: error.message, details: error.details })
+        // Check for foreign key constraint
+        if (error.code === '23503' || error.message?.includes('foreign key') || error.message?.includes('referenced')) {
+          setMessage({ type: 'error', text: 'Cannot delete: this location has orders, inventory, or other data linked to it' })
+        } else {
+          setMessage({ type: 'error', text: error.message || 'Failed to delete location' })
+        }
+        return
+      }
+      setEditingId(null)
+      setMessage({ type: 'success', text: 'Location deleted' })
+      onRefresh()
+    } catch (error: any) {
+      console.error('[LocationsSettings] Delete error:', error)
+      setMessage({ type: 'error', text: error?.message || 'Failed to delete location' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleCreate = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setSaving(true)
     try {
       // Filter out taxes with 0 rate - keep as percentage format for taxes array
@@ -577,7 +603,7 @@ function LocationsSettings({
       const totalRate = validTaxes.reduce((sum, t) => sum + t.rate, 0)
 
       const { error } = await supabase.from('locations').insert({
-        vendor_id: vendorId,
+        store_id: storeId,
         name: editForm.name || 'New Location',
         address: editForm.address || null,
         city: editForm.city || null,
@@ -657,12 +683,22 @@ function LocationsSettings({
               {editingId === location.id ? (
                 <div className="p-6 space-y-4">
                   <LocationForm form={editForm} setForm={setEditForm} />
-                  <div className="flex gap-2 pt-4 border-t border-zinc-900">
-                    <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
-                    <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">
-                      {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Save
+                  <div className="flex items-center justify-between pt-4 border-t border-zinc-900">
+                    <button
+                      onClick={() => handleDelete(location.id, location.name)}
+                      disabled={saving || location.is_primary}
+                      className="px-4 py-2 text-sm text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={location.is_primary ? 'Cannot delete primary location' : 'Delete location'}
+                    >
+                      Delete
                     </button>
+                    <div className="flex gap-2">
+                      <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm text-zinc-400 hover:text-white">Cancel</button>
+                      <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">
+                        {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                        Save
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -831,10 +867,10 @@ function LocationForm({ form, setForm }: { form: LocationEditForm; setForm: (f: 
 // =============================================================================
 
 function RegistersSettings({
-  vendorId,
+  storeId,
   locations,
 }: {
-  vendorId: string | null
+  storeId: string | null
   locations: LocationWithSettings[]
 }) {
   const {
@@ -867,8 +903,8 @@ function RegistersSettings({
   })
 
   useEffect(() => {
-    if (vendorId) loadRegisters(vendorId)
-  }, [vendorId, loadRegisters])
+    if (storeId) loadRegisters(storeId)
+  }, [storeId, loadRegisters])
 
   const registersByLocation = registers.reduce((acc, reg) => {
     const locationId = reg.location_id
@@ -911,9 +947,9 @@ function RegistersSettings({
   }
 
   const handleCreateRegister = async () => {
-    if (!vendorId || !registerForm.location_id) return
+    if (!storeId || !registerForm.location_id) return
     setSaving(true)
-    const result = await createRegister(vendorId, registerForm)
+    const result = await createRegister(storeId, registerForm)
     setSaving(false)
     if (result.success) {
       setShowCreate(false)
@@ -1202,7 +1238,7 @@ interface AuthorizeNetConfig {
   is_ecommerce_processor: boolean
 }
 
-function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
+function PaymentsSettings({ storeId }: { storeId: string | null }) {
   const [authNetConfig, setAuthNetConfig] = useState<AuthorizeNetConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAuthNetModal, setShowAuthNetModal] = useState(false)
@@ -1219,14 +1255,14 @@ function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
   })
 
   useEffect(() => {
-    if (!vendorId) return
+    if (!storeId) return
     const loadAuthNetConfig = async () => {
       setLoading(true)
       try {
         const { data } = await supabase
           .from('payment_processors')
           .select('*')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('processor_type', 'authorizenet')
           .eq('is_ecommerce_processor', true)
           .single()
@@ -1245,10 +1281,10 @@ function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
       finally { setLoading(false) }
     }
     loadAuthNetConfig()
-  }, [vendorId])
+  }, [storeId])
 
   const handleSaveAuthNet = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     if (!authNetForm.api_login_id.trim()) { setMessage({ type: 'error', text: 'API Login ID is required' }); return }
     if (!authNetForm.transaction_key.trim()) { setMessage({ type: 'error', text: 'Transaction Key is required' }); return }
     if (!authNetForm.public_client_key.trim()) { setMessage({ type: 'error', text: 'Public Client Key is required' }); return }
@@ -1257,7 +1293,7 @@ function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
     setMessage(null)
     try {
       const processorData = {
-        vendor_id: vendorId,
+        store_id: storeId,
         processor_type: 'authorizenet',
         processor_name: authNetForm.processor_name.trim(),
         environment: authNetForm.environment,
@@ -1434,7 +1470,7 @@ function PaymentsSettings({ vendorId }: { vendorId: string | null }) {
 // SHIPPING SETTINGS
 // =============================================================================
 
-function ShippingSettings({ vendor, vendorId, setVendor }: { vendor: any; vendorId: string | null; setVendor: (v: any) => void }) {
+function ShippingSettings({ store, storeId, setStore }: { store: any; storeId: string | null; setStore: (v: any) => void }) {
   const [isSaving, setIsSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -1444,17 +1480,17 @@ function ShippingSettings({ vendor, vendorId, setVendor }: { vendor: any; vendor
   const [freeShippingOn, setFreeShippingOn] = useState(false)
   const [freeThreshold, setFreeThreshold] = useState('')
 
-  // Initialize form when vendor data arrives or changes
+  // Initialize form when store data arrives or changes
   useEffect(() => {
-    if (vendor) {
-      setShippingCost(String(vendor.default_shipping_cost ?? 0))
-      setFreeShippingOn(Boolean(vendor.free_shipping_enabled))
-      setFreeThreshold(String(vendor.free_shipping_threshold ?? 0))
+    if (store) {
+      setShippingCost(String(store.default_shipping_cost ?? 0))
+      setFreeShippingOn(Boolean(store.free_shipping_enabled))
+      setFreeThreshold(String(store.free_shipping_threshold ?? 0))
     }
-  }, [vendor?.id])
+  }, [store?.id])
 
   const handleSave = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setIsSaving(true)
     setSaveMessage(null)
     setSaveError(null)
@@ -1468,15 +1504,15 @@ function ShippingSettings({ vendor, vendorId, setVendor }: { vendor: any; vendor
       }
 
       const { data, error } = await supabase
-        .from('vendors')
+        .from('stores')
         .update(updateData)
-        .eq('id', vendorId)
+        .eq('id', storeId)
         .select()
         .single()
 
       if (error) throw error
 
-      setVendor(data)
+      setStore(data)
       setSaveMessage('Shipping settings saved successfully')
       setTimeout(() => setSaveMessage(null), 3000)
     } catch (err) {
@@ -1488,7 +1524,7 @@ function ShippingSettings({ vendor, vendorId, setVendor }: { vendor: any; vendor
   }
 
   // Loading state
-  if (!vendor) {
+  if (!store) {
     return (
       <div className="space-y-6">
         <div className="border-b border-zinc-800 pb-4">
@@ -1626,7 +1662,7 @@ const TEMPLATE_INFO: Record<string, { label: string; description: string }> = {
   order_status_update: { label: 'Order Status', description: 'General order updates' },
 }
 
-function EmailSettings({ vendorId }: { vendorId: string | null }) {
+function EmailSettings({ storeId }: { storeId: string | null }) {
   const { settings, isLoading, isSaving, isSendingTest, error, loadSettings, updateSettings, sendTestEmail } = useEmailSettingsStore()
   const [isEditing, setIsEditing] = useState(false)
   const [testEmail, setTestEmail] = useState('')
@@ -1657,7 +1693,7 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
   // Available template slugs (templates are rendered by edge function)
   const templateSlugs = Object.keys(TEMPLATE_INFO)
 
-  useEffect(() => { if (vendorId) loadSettings(vendorId) }, [vendorId, loadSettings])
+  useEffect(() => { if (storeId) loadSettings(storeId) }, [storeId, loadSettings])
   useEffect(() => {
     if (settings) {
       setFormData({
@@ -1682,18 +1718,18 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
     }
   }, [settings])
 
-  const handleSave = async () => { if (!vendorId) return; const success = await updateSettings(vendorId, formData); if (success) { setIsEditing(false); setMessage({ type: 'success', text: 'Email settings saved' }) } else { setMessage({ type: 'error', text: error || 'Failed' }) } }
-  const handleSendTest = async () => { if (!vendorId || !testEmail) return; const success = await sendTestEmail(vendorId, testEmail); setMessage(success ? { type: 'success', text: `Test sent to ${testEmail}` } : { type: 'error', text: error || 'Failed' }) }
+  const handleSave = async () => { if (!storeId) return; const success = await updateSettings(storeId, formData); if (success) { setIsEditing(false); setMessage({ type: 'success', text: 'Email settings saved' }) } else { setMessage({ type: 'error', text: error || 'Failed' }) } }
+  const handleSendTest = async () => { if (!storeId || !testEmail) return; const success = await sendTestEmail(storeId, testEmail); setMessage(success ? { type: 'success', text: `Test sent to ${testEmail}` } : { type: 'error', text: error || 'Failed' }) }
 
   // Send test email for specific template
   const handleSendTemplateTest = async (templateSlug: string) => {
-    if (!vendorId || !testEmail) {
+    if (!storeId || !testEmail) {
       setMessage({ type: 'error', text: 'Please enter a test email address first' })
       return
     }
     setSendingTemplateTest(templateSlug)
     try {
-      const success = await sendTestEmail(vendorId, testEmail, templateSlug as TemplateSlug)
+      const success = await sendTestEmail(storeId, testEmail, templateSlug as TemplateSlug)
       const info = TEMPLATE_INFO[templateSlug]
       setMessage(success
         ? { type: 'success', text: `${info?.label || templateSlug} test sent to ${testEmail}` }
@@ -1712,7 +1748,7 @@ function EmailSettings({ vendorId }: { vendorId: string | null }) {
       {message && <StatusMessage type={message.type} text={message.text} />}
 
       {!settings ? (
-        <Card><div className="p-12 text-center"><Mail className="w-8 h-8 text-zinc-700 mx-auto mb-3" /><p className="text-zinc-400 text-sm mb-4">Email not configured</p><button onClick={() => vendorId && updateSettings(vendorId, { from_name: 'Your Store', from_email: 'noreply@example.com', domain: 'example.com', enable_receipts: true, enable_order_confirmations: true, enable_order_updates: true, enable_loyalty_updates: true, enable_welcome_emails: true, enable_marketing: false })} disabled={isSaving} className="px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{isSaving ? 'Setting up...' : 'Set Up Email'}</button></div></Card>
+        <Card><div className="p-12 text-center"><Mail className="w-8 h-8 text-zinc-700 mx-auto mb-3" /><p className="text-zinc-400 text-sm mb-4">Email not configured</p><button onClick={() => storeId && updateSettings(storeId, { from_name: 'Your Store', from_email: 'noreply@example.com', domain: 'example.com', enable_receipts: true, enable_order_confirmations: true, enable_order_updates: true, enable_loyalty_updates: true, enable_welcome_emails: true, enable_marketing: false })} disabled={isSaving} className="px-4 py-2 bg-white text-black hover:bg-zinc-200 disabled:opacity-50 text-sm">{isSaving ? 'Setting up...' : 'Set Up Email'}</button></div></Card>
       ) : (
         <>
           <Card>
@@ -1898,7 +1934,7 @@ interface LocationOption {
   is_active: boolean
 }
 
-function TeamSettings({ vendorId }: { vendorId: string | null }) {
+function TeamSettings({ storeId }: { storeId: string | null }) {
   const { users, isLoading, loadUsers, createUser, updateUser, deleteUser, toggleUserStatus, updateUserLocations } = useUsersManagementStore()
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -1907,26 +1943,26 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
   const [formData, setFormData] = useState({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '', location_ids: [] as string[] })
   const [locations, setLocations] = useState<LocationOption[]>([])
 
-  useEffect(() => { if (vendorId) loadUsers(vendorId) }, [vendorId, loadUsers])
+  useEffect(() => { if (storeId) loadUsers(storeId) }, [storeId, loadUsers])
 
-  // Fetch locations for the vendor
+  // Fetch locations for the store
   useEffect(() => {
-    if (!vendorId) return
+    if (!storeId) return
     const fetchLocations = async () => {
       const { data, error } = await supabase
         .from('locations')
         .select('id, name, is_active')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('is_active', true)
         .order('name')
       if (!error && data) setLocations(data)
     }
     fetchLocations()
-  }, [vendorId])
+  }, [storeId])
 
   const handleCreate = async () => {
-    if (!vendorId) {
-      setMessage({ type: 'error', text: 'No vendor selected. Please refresh the page.' })
+    if (!storeId) {
+      setMessage({ type: 'error', text: 'No store selected. Please refresh the page.' })
       return
     }
     if (!formData.email || !formData.first_name || !formData.last_name) {
@@ -1934,7 +1970,7 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
       return
     }
     setSaving(true)
-    const result = await createUser(vendorId, formData)
+    const result = await createUser(storeId, formData)
     setSaving(false)
     if (result.success) { setShowCreate(false); setFormData({ first_name: '', last_name: '', email: '', phone: '', role: 'pos_staff', employee_id: '', location_ids: [] }); setMessage({ type: 'success', text: result.message || 'Invitation sent! User will receive an email to set their password.' }) }
     else { setMessage({ type: 'error', text: result.error || 'Failed to create user' }) }
@@ -1948,7 +1984,7 @@ function TeamSettings({ vendorId }: { vendorId: string | null }) {
     // Update locations separately
     if (result.success) {
       await updateUserLocations(editingId, location_ids)
-      if (vendorId) await loadUsers(vendorId) // Reload to get updated locations
+      if (storeId) await loadUsers(storeId) // Reload to get updated locations
     }
     setSaving(false)
     if (result.success) { setEditingId(null); setMessage({ type: 'success', text: 'User updated' }) }
@@ -2098,7 +2134,7 @@ function UserForm({ form, setForm, locations }: { form: any; setForm: (f: any) =
 // SUPPLIERS SETTINGS
 // =============================================================================
 
-function SuppliersSettings({ vendorId }: { vendorId: string | null }) {
+function SuppliersSettings({ storeId }: { storeId: string | null }) {
   const { suppliers, isLoading, loadSuppliers, createSupplier, updateSupplier, deleteSupplier, toggleSupplierStatus } = useSuppliersManagementStore()
   const [showCreate, setShowCreate] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -2106,12 +2142,12 @@ function SuppliersSettings({ vendorId }: { vendorId: string | null }) {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [formData, setFormData] = useState({ external_name: '', contact_name: '', contact_email: '', contact_phone: '', address: '', notes: '' })
 
-  useEffect(() => { if (vendorId) loadSuppliers(vendorId) }, [vendorId, loadSuppliers])
+  useEffect(() => { if (storeId) loadSuppliers(storeId) }, [storeId, loadSuppliers])
 
   const handleCreate = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setSaving(true)
-    const result = await createSupplier(vendorId, formData)
+    const result = await createSupplier(storeId, formData)
     setSaving(false)
     if (result.success) { setShowCreate(false); setFormData({ external_name: '', contact_name: '', contact_email: '', contact_phone: '', address: '', notes: '' }); setMessage({ type: 'success', text: 'Supplier created' }) }
     else { setMessage({ type: 'error', text: result.error || 'Failed' }) }

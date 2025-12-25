@@ -21,7 +21,7 @@ export interface TeamUser {
   employee_id: string | null
   created_at: string
   updated_at: string
-  vendor_id: string
+  store_id: string
   auth_user_id: string | null
   location_count: number
   locations: { id: string; name: string }[]
@@ -42,8 +42,8 @@ interface UsersManagementState {
   isLoading: boolean
   error: string | null
 
-  loadUsers: (vendorId: string) => Promise<void>
-  createUser: (vendorId: string, userData: {
+  loadUsers: (storeId: string) => Promise<void>
+  createUser: (storeId: string, userData: {
     email: string
     first_name: string
     last_name: string
@@ -68,7 +68,7 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
   isLoading: false,
   error: null,
 
-  loadUsers: async (vendorId: string) => {
+  loadUsers: async (storeId: string) => {
     set({ isLoading: true, error: null })
 
     try {
@@ -76,7 +76,7 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
 
       if (usersError) throw usersError
@@ -115,14 +115,14 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
     }
   },
 
-  createUser: async (vendorId: string, userData) => {
+  createUser: async (storeId: string, userData) => {
     try {
       // Use the API route which handles Supabase Auth + users table
       const response = await fetch('/api/users/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          vendor_id: vendorId,
+          store_id: storeId,
           email: userData.email,
           first_name: userData.first_name,
           last_name: userData.last_name,
@@ -156,7 +156,7 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
       }
 
       // Reload users
-      await get().loadUsers(vendorId)
+      await get().loadUsers(storeId)
 
       return { success: true, message: result.message, userId: result.user?.id }
     } catch (err) {

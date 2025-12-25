@@ -16,7 +16,7 @@ import { getDateRangeForQuery } from '@/lib/date-utils'
 export interface Order {
   id: string
   order_number: string
-  vendor_id: string
+  store_id: string
   customer_id: string | null
   order_type: 'walk_in' | 'pickup' | 'delivery' | 'shipping'
   status: string
@@ -67,7 +67,7 @@ export interface OrdersState {
   filters: OrderFilters
 
   // Actions
-  fetchOrders: (vendorId: string) => Promise<void>
+  fetchOrders: (storeId: string) => Promise<void>
   setFilters: (filters: Partial<OrderFilters>) => void
   clearFilters: () => void
 
@@ -114,8 +114,8 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
   error: null,
   filters: { ...defaultFilters },
 
-  fetchOrders: async (vendorId: string) => {
-    if (!vendorId) return
+  fetchOrders: async (storeId: string) => {
+    if (!storeId) return
 
     set({ isLoading: true, error: null })
 
@@ -134,7 +134,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
           .select(`
             id,
             order_number,
-            vendor_id,
+            store_id,
             customer_id,
             order_type,
             status,
@@ -157,7 +157,7 @@ export const useOrdersStore = create<OrdersState>((set, get) => ({
             shipping_zip,
             metadata
           `)
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .gte('created_at', start)
           .lte('created_at', end)
           .neq('status', 'cancelled')

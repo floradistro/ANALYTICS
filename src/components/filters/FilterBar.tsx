@@ -43,22 +43,22 @@ export function FilterBar({
   showPaymentFilter = true,
   showOrderTypeFilter = true,
 }: FilterBarProps) {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { filters, setFilters, resetFilters } = useDashboardStore()
   const [locations, setLocations] = useState<Location[]>([])
   const [openDropdown, setOpenDropdown] = useState<string | null>(null)
 
   useEffect(() => {
-    if (vendorId && showLocationFilter) {
+    if (storeId && showLocationFilter) {
       fetchLocations()
     }
-  }, [vendorId, showLocationFilter])
+  }, [storeId, showLocationFilter])
 
   const fetchLocations = async () => {
     const { data } = await supabase
       .from('locations')
       .select('id, name')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .eq('is_active', true)
       .order('name')
 

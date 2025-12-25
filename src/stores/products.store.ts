@@ -14,7 +14,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js'
 
 export interface Category {
   id: string
-  vendor_id: string
+  store_id: string
   name: string
   slug: string
   description?: string
@@ -42,7 +42,7 @@ export interface PriceTier {
 
 export interface PricingTemplate {
   id: string
-  vendor_id: string
+  store_id: string
   name: string
   slug: string
   description?: string
@@ -58,7 +58,7 @@ export interface PricingTemplate {
 
 export interface Product {
   id: string
-  vendor_id: string
+  store_id: string
   name: string
   slug: string
   sku?: string
@@ -186,26 +186,26 @@ interface ProductsState {
   subscription: RealtimeChannel | null
 
   // Product Actions
-  loadProducts: (vendorId: string, params?: {
+  loadProducts: (storeId: string, params?: {
     categoryId?: string
     status?: 'published' | 'draft'
     search?: string
     limit?: number
   }) => Promise<void>
   loadProductDetail: (productId: string) => Promise<void>
-  createProduct: (vendorId: string, input: CreateProductInput) => Promise<{ success: boolean; productId?: string; error?: string }>
+  createProduct: (storeId: string, input: CreateProductInput) => Promise<{ success: boolean; productId?: string; error?: string }>
   updateProduct: (productId: string, input: UpdateProductInput) => Promise<{ success: boolean; error?: string }>
   deleteProduct: (productId: string) => Promise<{ success: boolean; error?: string }>
 
   // Category Actions
-  loadCategories: (vendorId: string) => Promise<void>
-  createCategory: (vendorId: string, input: CreateCategoryInput) => Promise<{ success: boolean; categoryId?: string; error?: string }>
+  loadCategories: (storeId: string) => Promise<void>
+  createCategory: (storeId: string, input: CreateCategoryInput) => Promise<{ success: boolean; categoryId?: string; error?: string }>
   updateCategory: (categoryId: string, input: UpdateCategoryInput) => Promise<{ success: boolean; error?: string }>
   deleteCategory: (categoryId: string) => Promise<{ success: boolean; error?: string }>
 
   // Pricing Template Actions
-  loadPricingTemplates: (vendorId: string, categoryId?: string) => Promise<void>
-  createPricingTemplate: (vendorId: string, input: CreatePricingTemplateInput) => Promise<{ success: boolean; templateId?: string; error?: string }>
+  loadPricingTemplates: (storeId: string, categoryId?: string) => Promise<void>
+  createPricingTemplate: (storeId: string, input: CreatePricingTemplateInput) => Promise<{ success: boolean; templateId?: string; error?: string }>
   updatePricingTemplate: (templateId: string, input: UpdatePricingTemplateInput) => Promise<{ success: boolean; error?: string }>
   deletePricingTemplate: (templateId: string) => Promise<{ success: boolean; error?: string }>
 
@@ -216,7 +216,7 @@ interface ProductsState {
 
   // Helpers
   clearSelectedProduct: () => void
-  subscribe: (vendorId: string) => void
+  subscribe: (storeId: string) => void
   unsubscribe: () => void
   reset: () => void
 }
@@ -246,7 +246,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   // PRODUCT ACTIONS
   // ==========================================================================
 
-  loadProducts: async (vendorId, params = {}) => {
+  loadProducts: async (storeId, params = {}) => {
     set({ isLoading: true, error: null })
 
     try {
@@ -257,7 +257,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
           categories:primary_category_id (id, name),
           pricing_tier_templates:pricing_template_id (id, name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
 
       if (params.categoryId) {
@@ -341,7 +341,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     }
   },
 
-  createProduct: async (vendorId, input) => {
+  createProduct: async (storeId, input) => {
     try {
       // Generate slug from name
       const slug = input.name
@@ -353,7 +353,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       const { data, error } = await supabase
         .from('products')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           name: input.name,
           slug,
           sku: input.sku,
@@ -376,7 +376,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       if (error) throw error
 
       // Reload products
-      await get().loadProducts(vendorId)
+      await get().loadProducts(storeId)
 
       return { success: true, productId: data.id }
     } catch (err: any) {
@@ -439,14 +439,14 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   // CATEGORY ACTIONS
   // ==========================================================================
 
-  loadCategories: async (vendorId) => {
+  loadCategories: async (storeId) => {
     set({ isLoadingCategories: true })
 
     try {
       const { data, error } = await supabase
         .from('categories')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('display_order', { ascending: true })
         .order('name', { ascending: true })
 
@@ -466,7 +466,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     }
   },
 
-  createCategory: async (vendorId, input) => {
+  createCategory: async (storeId, input) => {
     try {
       const slug = input.name
         .toLowerCase()
@@ -477,7 +477,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       const { data, error } = await supabase
         .from('categories')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           name: input.name,
           slug,
           description: input.description,
@@ -491,7 +491,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
 
       if (error) throw error
 
-      await get().loadCategories(vendorId)
+      await get().loadCategories(storeId)
 
       return { success: true, categoryId: data.id }
     } catch (err: any) {
@@ -549,7 +549,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   // PRICING TEMPLATE ACTIONS
   // ==========================================================================
 
-  loadPricingTemplates: async (vendorId, categoryId) => {
+  loadPricingTemplates: async (storeId, categoryId) => {
     set({ isLoadingTemplates: true })
 
     try {
@@ -559,7 +559,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
           *,
           categories:category_id (id, name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('display_order', { ascending: true })
         .order('name', { ascending: true })
 
@@ -587,7 +587,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     }
   },
 
-  createPricingTemplate: async (vendorId, input) => {
+  createPricingTemplate: async (storeId, input) => {
     try {
       const slug = input.name
         .toLowerCase()
@@ -598,7 +598,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
       const { data, error } = await supabase
         .from('pricing_tier_templates')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           name: input.name,
           slug,
           description: input.description,
@@ -612,7 +612,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
 
       if (error) throw error
 
-      await get().loadPricingTemplates(vendorId)
+      await get().loadPricingTemplates(storeId)
 
       return { success: true, templateId: data.id }
     } catch (err: any) {
@@ -680,7 +680,7 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
 
   clearSelectedProduct: () => set({ selectedProduct: null }),
 
-  subscribe: (vendorId) => {
+  subscribe: (storeId) => {
     get().unsubscribe()
 
     const channel = supabase
@@ -691,10 +691,10 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
           event: '*',
           schema: 'public',
           table: 'products',
-          filter: `vendor_id=eq.${vendorId}`,
+          filter: `store_id=eq.${storeId}`,
         },
         () => {
-          get().loadProducts(vendorId)
+          get().loadProducts(storeId)
         }
       )
       .subscribe()

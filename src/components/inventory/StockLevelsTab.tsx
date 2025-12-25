@@ -19,7 +19,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { InventoryAdjustmentModal } from './InventoryAdjustmentModal'
 
 export function StockLevelsTab() {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     inventory,
     locations,
@@ -45,23 +45,23 @@ export function StockLevelsTab() {
 
   // Load data on mount
   useEffect(() => {
-    if (vendorId) {
-      loadLocations(vendorId)
-      loadInventory(vendorId)
-      subscribeToInventory(vendorId)
+    if (storeId) {
+      loadLocations(storeId)
+      loadInventory(storeId)
+      subscribeToInventory(storeId)
     }
     return () => unsubscribe()
-  }, [vendorId])
+  }, [storeId])
 
   // Reload when filters change
   useEffect(() => {
-    if (vendorId) {
-      loadInventory(vendorId, {
+    if (storeId) {
+      loadInventory(storeId, {
         locationId: locationFilter || undefined,
         stockStatus: stockStatusFilter === 'all' ? undefined : stockStatusFilter,
       })
     }
-  }, [vendorId, locationFilter, stockStatusFilter])
+  }, [storeId, locationFilter, stockStatusFilter])
 
   // Filter by search
   const filteredInventory = useMemo(() => {

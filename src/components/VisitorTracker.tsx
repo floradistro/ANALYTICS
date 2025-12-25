@@ -3,7 +3,7 @@
 import { useEffect } from 'react'
 
 interface VisitorTrackerProps {
-  vendorId: string
+  storeId: string
 }
 
 // Generate or retrieve persistent visitor ID
@@ -21,9 +21,9 @@ function getVisitorId(): string {
   return visitorId
 }
 
-export default function VisitorTracker({ vendorId }: VisitorTrackerProps) {
+export default function VisitorTracker({ storeId }: VisitorTrackerProps) {
   useEffect(() => {
-    if (!vendorId) return
+    if (!storeId) return
 
     const trackVisit = async () => {
       try {
@@ -33,7 +33,7 @@ export default function VisitorTracker({ vendorId }: VisitorTrackerProps) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            vendor_id: vendorId,
+            store_id: storeId,
             visitor_id: visitorId,
             page_url: window.location.href,
             referrer: document.referrer || null,
@@ -48,18 +48,18 @@ export default function VisitorTracker({ vendorId }: VisitorTrackerProps) {
     // Track after a short delay to not block page load
     const timer = setTimeout(trackVisit, 100)
     return () => clearTimeout(timer)
-  }, [vendorId])
+  }, [storeId])
 
   return null
 }
 
 // For external sites - embed script
-export function getTrackingSnippet(vendorId: string, analyticsUrl: string): string {
+export function getTrackingSnippet(storeId: string, analyticsUrl: string): string {
   return `
 <!-- WhaleTools Analytics -->
 <script>
 (function() {
-  var v = '${vendorId}';
+  var v = '${storeId}';
   var u = '${analyticsUrl}/api/track';
   var d = document, s = d.createElement('script');
   s.async = true;
@@ -69,7 +69,7 @@ export function getTrackingSnippet(vendorId: string, analyticsUrl: string): stri
   // Also send via beacon for more data
   if (navigator.sendBeacon) {
     navigator.sendBeacon(u, JSON.stringify({
-      vendor_id: v,
+      store_id: v,
       page_url: location.href,
       referrer: d.referrer
     }));

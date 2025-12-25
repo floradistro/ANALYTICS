@@ -16,9 +16,9 @@ interface EmailSettingsState {
   error: string | null
 
   // Actions
-  loadSettings: (vendorId: string) => Promise<void>
-  updateSettings: (vendorId: string, updates: Partial<VendorEmailSettings>) => Promise<boolean>
-  sendTestEmail: (vendorId: string, to: string, templateSlug?: TemplateSlug) => Promise<boolean>
+  loadSettings: (storeId: string) => Promise<void>
+  updateSettings: (storeId: string, updates: Partial<VendorEmailSettings>) => Promise<boolean>
+  sendTestEmail: (storeId: string, to: string, templateSlug?: TemplateSlug) => Promise<boolean>
   clearError: () => void
   reset: () => void
 }
@@ -32,11 +32,11 @@ export const useEmailSettingsStore = create<EmailSettingsState>((set) => ({
   testingTemplate: null,
   error: null,
 
-  loadSettings: async (vendorId: string) => {
+  loadSettings: async (storeId: string) => {
     set({ isLoading: true, error: null })
 
     try {
-      const settings = await EmailService.getVendorSettings(vendorId)
+      const settings = await EmailService.getVendorSettings(storeId)
       set({ settings, isLoading: false })
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load email settings'
@@ -45,11 +45,11 @@ export const useEmailSettingsStore = create<EmailSettingsState>((set) => ({
     }
   },
 
-  updateSettings: async (vendorId: string, updates: Partial<VendorEmailSettings>) => {
+  updateSettings: async (storeId: string, updates: Partial<VendorEmailSettings>) => {
     set({ isSaving: true, error: null })
 
     try {
-      const updatedSettings = await EmailService.updateVendorSettings(vendorId, updates)
+      const updatedSettings = await EmailService.updateVendorSettings(storeId, updates)
 
       if (updatedSettings) {
         set({ settings: updatedSettings, isSaving: false })
@@ -65,11 +65,11 @@ export const useEmailSettingsStore = create<EmailSettingsState>((set) => ({
     }
   },
 
-  sendTestEmail: async (vendorId: string, to: string, templateSlug?: TemplateSlug) => {
+  sendTestEmail: async (storeId: string, to: string, templateSlug?: TemplateSlug) => {
     set({ isSendingTest: true, testingTemplate: templateSlug || null, error: null })
 
     try {
-      const result = await EmailService.sendTestEmail({ vendorId, to, templateSlug })
+      const result = await EmailService.sendTestEmail({ storeId, to, templateSlug })
 
       if (result.success) {
         set({ isSendingTest: false, testingTemplate: null })

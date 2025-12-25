@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
 
     // Accept both snake_case and camelCase (Swift sends camelCase)
-    const vendor_id = body.vendor_id || body.vendorId
+    const store_id = body.store_id || body.vendorId
     const code = body.code
     const name = body.name
     const type = body.type
@@ -35,9 +35,9 @@ export async function POST(request: NextRequest) {
     const quantity_index = body.quantity_index || body.quantityIndex
     const location_name = body.location_name || body.locationName
 
-    if (!vendor_id || !code || !name) {
+    if (!store_id || !code || !name) {
       return NextResponse.json(
-        { success: false, error: 'vendor_id, code, and name are required' },
+        { success: false, error: 'store_id, code, and name are required' },
         { status: 400 }
       )
     }
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
 
     // Create QR code with existing table structure
     const qrData: any = {
-      vendor_id,
+      store_id,
       code,
       name,
       type: qrType,

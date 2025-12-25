@@ -48,7 +48,7 @@ interface AnalyticsData {
 }
 
 export default function WebAnalyticsPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange } = useDashboardStore()
   const [isLoading, setIsLoading] = useState(true)
   const [data, setData] = useState<AnalyticsData | null>(null)
@@ -65,7 +65,7 @@ export default function WebAnalyticsPage() {
   }
 
   const fetchAnalytics = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setIsLoading(true)
     setError(null)
 
@@ -73,7 +73,7 @@ export default function WebAnalyticsPage() {
 
     try {
       const response = await fetch(
-        `/api/analytics/aggregate?vendor_id=${vendorId}&start=${start}&end=${end}`
+        `/api/analytics/aggregate?store_id=${storeId}&start=${start}&end=${end}`
       )
 
       if (!response.ok) {
@@ -88,7 +88,7 @@ export default function WebAnalyticsPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [vendorId, dateRange])
+  }, [storeId, dateRange])
 
   useEffect(() => {
     fetchAnalytics()
@@ -788,13 +788,13 @@ export default function WebAnalyticsPage() {
       )}
 
       {/* Detail Modal */}
-      {vendorId && (
+      {storeId && (
         <AnalyticsDetailModal
           isOpen={modalOpen}
           onClose={() => setModalOpen(false)}
           type={modalType}
           title={modalTitle}
-          vendorId={vendorId}
+          storeId={storeId}
           dateRange={getDateRangeForQuery()}
         />
       )}

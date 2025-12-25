@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       email,
       first_name,
       last_name,
@@ -28,9 +28,9 @@ export async function POST(request: NextRequest) {
     } = body
 
     // Validate required fields
-    if (!vendor_id || !email || !first_name || !last_name || !role) {
+    if (!store_id || !email || !first_name || !last_name || !role) {
       return NextResponse.json(
-        { error: 'Missing required fields: vendor_id, email, first_name, last_name, role' },
+        { error: 'Missing required fields: store_id, email, first_name, last_name, role' },
         { status: 400 }
       )
     }
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
         first_name,
         last_name,
         role,
-        vendor_id,
+        store_id,
       },
     })
 
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
               first_name,
               last_name,
               role,
-              vendor_id,
+              store_id,
               is_staff: true,
             },
           })
@@ -120,7 +120,7 @@ export async function POST(request: NextRequest) {
               first_name,
               last_name,
               role,
-              vendor_id,
+              store_id,
               is_staff: true,
             },
           })
@@ -163,7 +163,7 @@ export async function POST(request: NextRequest) {
     const { data: userData, error: userError } = await supabase
       .from('users')
       .insert({
-        vendor_id,
+        store_id,
         auth_user_id: authUserId,
         email: email.toLowerCase(),
         first_name,
@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
           to: email.toLowerCase(),
           toName: `${first_name} ${last_name}`,
           templateSlug: 'password_reset',
-          vendorId: vendor_id,
+          storeId: store_id,
           data: {
             customer_name: `${first_name} ${last_name}`,
             reset_url: magicLink,

@@ -49,7 +49,7 @@ type OrderType = 'all' | 'walk_in' | 'pickup' | 'delivery' | 'shipping'
 type ViewTab = 'orders' | 'failed'
 
 export default function OrdersPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange, filters } = useDashboardStore()
   const [orders, setOrders] = useState<OrderWithCustomer[]>([])
   const [loading, setLoading] = useState(true)
@@ -93,7 +93,7 @@ export default function OrdersPage() {
   }, [search])
 
   const fetchOrders = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     const { start, end } = getDateRangeForQuery()
@@ -102,7 +102,7 @@ export default function OrdersPage() {
       let query = supabase
         .from('orders')
         .select('*', { count: 'exact' })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .order('created_at', { ascending: false })
@@ -135,7 +135,7 @@ export default function OrdersPage() {
           const { data: allCustomers } = await supabase
             .from('customers')
             .select('id, first_name, last_name, email')
-            .eq('vendor_id', vendorId)
+            .eq('store_id', storeId)
             .or(
               searchWords.map(w =>
                 `first_name.ilike.%${w}%,last_name.ilike.%${w}%,email.ilike.%${w}%`
@@ -192,17 +192,17 @@ export default function OrdersPage() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch])
+  }, [storeId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch])
 
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       fetchOrders()
     }
-  }, [vendorId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch, fetchOrders])
+  }, [storeId, page, statusFilter, typeFilter, dateRange, filters, debouncedSearch, fetchOrders])
 
   // Fetch failed checkouts - from both checkout_attempts (new) and orders (legacy)
   const fetchFailedCheckouts = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setFailedLoading(true)
 
     const { start, end } = getDateRangeForQuery()
@@ -212,7 +212,7 @@ export default function OrdersPage() {
       const { data: checkoutAttempts, error: attemptsError } = await supabase
         .from('checkout_attempts')
         .select('id, customer_email, customer_name, total_amount, status, processor_error_message, source, created_at')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .in('status', ['declined', 'error'])
         .gte('created_at', start)
         .lte('created_at', end)
@@ -226,7 +226,7 @@ export default function OrdersPage() {
       const { data: failedOrders, error: ordersError } = await supabase
         .from('orders')
         .select('id, shipping_name, total_amount, payment_status, order_number, payment_method, order_type, created_at, customers(email, first_name, last_name)')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('payment_status', 'failed')
         .gte('created_at', start)
         .lte('created_at', end)
@@ -294,14 +294,14 @@ export default function OrdersPage() {
 
   // Fetch failed checkouts on mount and when date changes
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       fetchFailedCheckouts()
     }
-  }, [vendorId, dateRange])
+  }, [storeId, dateRange])
 
   // Realtime subscription for instant updates (like POS)
   useEffect(() => {
-    if (!vendorId) return
+    if (!storeId) return
 
     console.log('[Orders Realtime] Setting up subscription...')
 
@@ -313,7 +313,7 @@ export default function OrdersPage() {
           event: '*',
           schema: 'public',
           table: 'orders',
-          filter: `vendor_id=eq.${vendorId}`
+          filter: `store_id=eq.${storeId}`
         },
         async (payload) => {
           console.log('[Orders Realtime] Change detected:', payload.eventType, payload)
@@ -384,7 +384,7 @@ export default function OrdersPage() {
       console.log('[Orders Realtime] Cleaning up subscription')
       supabase.removeChannel(channel)
     }
-  }, [vendorId])
+  }, [storeId])
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)

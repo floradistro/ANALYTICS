@@ -158,7 +158,7 @@ const getOrderChannel = (order: { pickup_location_id: string | null; order_type:
 // ============ COMPONENT ============
 
 export default function ReportBuilder() {
-  const { vendorId, vendor } = useAuthStore()
+  const { storeId, store } = useAuthStore()
   const [config, setConfig] = useState<ReportConfig>(DEFAULT_CONFIG)
   const [exportingPDF, setExportingPDF] = useState(false)
   const [results, setResults] = useState<ReportRow[]>([])
@@ -171,30 +171,30 @@ export default function ReportBuilder() {
   // Fetch locations for filter dropdown
   useEffect(() => {
     async function fetchLocations() {
-      if (!vendorId) return
+      if (!storeId) return
       const { data } = await supabase
         .from('locations')
         .select('id, name, state')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('is_active', true)
       setLocations(data || [])
     }
     fetchLocations()
-  }, [vendorId])
+  }, [storeId])
 
   // Fetch categories for filter dropdown
   useEffect(() => {
     async function fetchCategories() {
-      if (!vendorId) return
+      if (!storeId) return
       const { data } = await supabase
         .from('categories')
         .select('id, name')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('name')
       setCategories(data || [])
     }
     fetchCategories()
-  }, [vendorId])
+  }, [storeId])
 
   const toggleDimension = (dim: Dimension) => {
     setConfig((prev) => ({
@@ -252,7 +252,7 @@ export default function ReportBuilder() {
   }
 
   const runReport = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     if (config.dimensions.length === 0) {
       setError('Please select at least one dimension')
       return
@@ -323,7 +323,7 @@ export default function ReportBuilder() {
             users!created_by_user_id (id, first_name, last_name)
           `
           )
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
           .gte('created_at', config.dateRange.start.toISOString())
@@ -519,7 +519,7 @@ export default function ReportBuilder() {
               locations!pickup_location_id (id, name, state),
               users!created_by_user_id (id, first_name, last_name)
             `)
-            .eq('vendor_id', vendorId)
+            .eq('store_id', storeId)
             .eq('payment_status', 'paid')
             .neq('status', 'cancelled')
             .gte('created_at', config.dateRange.start.toISOString())
@@ -796,7 +796,7 @@ export default function ReportBuilder() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, config])
+  }, [storeId, config])
 
   const exportCSV = useCallback(() => {
     if (results.length === 0) return
@@ -827,7 +827,7 @@ export default function ReportBuilder() {
   }, [results])
 
   const exportPDF = useCallback(async () => {
-    if (results.length === 0 || !vendor) return
+    if (results.length === 0 || !store) return
 
     setExportingPDF(true)
     try {
@@ -869,8 +869,8 @@ export default function ReportBuilder() {
         title: `Sales Report${dimensionLabels ? ` by ${dimensionLabels}` : ''}`,
         subtitle: `${config.dateGranularity.charAt(0).toUpperCase() + config.dateGranularity.slice(1)} breakdown`,
         vendor: {
-          storeName: vendor.store_name || 'Store',
-          logoUrl: vendor.logo_url,
+          storeName: store.store_name || 'Store',
+          logoUrl: store.logo_url,
         },
         dateRange: config.dateRange,
         sections: [
@@ -896,7 +896,7 @@ export default function ReportBuilder() {
     } finally {
       setExportingPDF(false)
     }
-  }, [results, vendor, config])
+  }, [results, store, config])
 
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat('en-US', {

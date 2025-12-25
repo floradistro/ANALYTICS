@@ -31,7 +31,7 @@ import {
 type OperationsTab = 'overview' | 'audits' | 'cash' | 'compliance' | 'checkouts'
 
 interface DailyAuditSummary {
-  vendor_id: string
+  store_id: string
   location_id: string
   audit_date: string
   adjustment_count: number
@@ -64,7 +64,7 @@ interface InventoryAdjustment {
 
 interface SafeBalance {
   location_id: string
-  vendor_id: string
+  store_id: string
   current_balance: number
   total_drops: number
   total_dropped: number
@@ -126,7 +126,7 @@ interface FailedCheckout {
 }
 
 export default function OperationsPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const [activeTab, setActiveTab] = useState<OperationsTab>('overview')
   const [loading, setLoading] = useState(true)
 
@@ -149,14 +149,14 @@ export default function OperationsPage() {
   const [safeTransactionDetails, setSafeTransactionDetails] = useState<SafeTransaction[]>([])
 
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       fetchOperationsData()
       fetchFailedCheckouts()
     }
-  }, [vendorId])
+  }, [storeId])
 
   const fetchFailedCheckouts = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setCheckoutsLoading(true)
 
     try {
@@ -166,7 +166,7 @@ export default function OperationsPage() {
       const { data, error } = await supabase
         .from('checkout_attempts')
         .select('*, order:orders!order_id(order_number)')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .in('status', ['declined', 'error'])
         .gte('created_at', thirtyDaysAgo)
         .order('created_at', { ascending: false })
@@ -185,7 +185,7 @@ export default function OperationsPage() {
   }
 
   const fetchOperationsData = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     try {
@@ -197,7 +197,7 @@ export default function OperationsPage() {
         supabase
           .from('daily_audit_summary')
           .select('*, location:locations!location_id(name)')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .gte('audit_date', sevenDaysAgo)
           .order('audit_date', { ascending: false }),
 
@@ -205,7 +205,7 @@ export default function OperationsPage() {
         supabase
           .from('inventory_adjustments')
           .select('id, product_id, location_id, quantity_before, quantity_after, quantity_change, reason, notes, created_by, created_at')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .order('created_at', { ascending: false })
           .limit(100),
 
@@ -213,13 +213,13 @@ export default function OperationsPage() {
         supabase
           .from('pos_safe_balances')
           .select('*, location:locations!location_id(name)')
-          .eq('vendor_id', vendorId),
+          .eq('store_id', storeId),
 
         // Safe transactions (last 7 days)
         supabase
           .from('pos_safe_transactions')
           .select('*, location:locations!location_id(name)')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
           .order('created_at', { ascending: false })
           .limit(100),
@@ -228,7 +228,7 @@ export default function OperationsPage() {
         supabase
           .from('locations')
           .select('id')
-          .eq('vendor_id', vendorId),
+          .eq('store_id', storeId),
       ])
 
       console.log('Operations data fetched:', {
@@ -258,7 +258,7 @@ export default function OperationsPage() {
             const { data: inventoryData } = await supabase
               .from('inventory')
               .select('product_id')
-              .eq('vendor_id', vendorId)
+              .eq('store_id', storeId)
               .eq('location_id', audit.location_id)
 
             const totalProducts = inventoryData?.length || 0
@@ -270,7 +270,7 @@ export default function OperationsPage() {
             const { data: adjustmentsData } = await supabase
               .from('inventory_adjustments')
               .select('product_id')
-              .eq('vendor_id', vendorId)
+              .eq('store_id', storeId)
               .eq('location_id', audit.location_id)
               .gte('created_at', startOfDay)
               .lte('created_at', endOfDay)
@@ -304,7 +304,7 @@ export default function OperationsPage() {
   }
 
   const fetchAuditDetails = async (audit: DailyAuditSummary) => {
-    if (!vendorId) return
+    if (!storeId) return
 
     setSelectedAudit(audit)
 
@@ -319,7 +319,7 @@ export default function OperationsPage() {
         supabase
           .from('inventory_adjustments')
           .select('*, product:products!product_id(name, sku)')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('location_id', audit.location_id)
           .gte('created_at', startOfDay)
           .lte('created_at', endOfDay)
@@ -329,7 +329,7 @@ export default function OperationsPage() {
         supabase
           .from('users')
           .select('id, auth_user_id, first_name, last_name, email')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
       ])
 
       const { data, error } = adjustmentsResult
@@ -363,12 +363,12 @@ export default function OperationsPage() {
   }
 
   const fetchSafeTransactionHistory = async (safe: SafeBalance) => {
-    if (!vendorId) return
+    if (!storeId) return
 
     const { data } = await supabase
       .from('pos_safe_transactions')
       .select('*')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .eq('location_id', safe.location_id)
       .order('created_at', { ascending: false })
       .limit(50)

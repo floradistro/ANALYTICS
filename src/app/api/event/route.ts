@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       visitor_id,
       session_id,
       fingerprint_id,
@@ -34,9 +34,9 @@ export async function POST(request: NextRequest) {
       utm_campaign,
     } = body
 
-    if (!vendor_id || !event_name) {
+    if (!store_id || !event_name) {
       return NextResponse.json(
-        { error: 'vendor_id and event_name required' },
+        { error: 'store_id and event_name required' },
         { status: 400, headers: corsHeaders }
       )
     }
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
     const deviceType = detectDeviceType(userAgent)
 
     const { error } = await supabase.from('analytics_events').insert({
-      vendor_id,
+      store_id,
       visitor_id,
       session_id,
       fingerprint_id: fingerprint_id || null,
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('fingerprint_id', fingerprint_id)
         .eq('customer_id', customerId)
-        .eq('vendor_id', vendor_id)
+        .eq('store_id', store_id)
         .single()
 
       if (!existingLink) {
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
           .insert({
             fingerprint_id,
             customer_id: customerId,
-            vendor_id,
+            store_id,
             link_source: 'purchase',
             confidence: 'high',
           })
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('fingerprint_id', fingerprint_id)
         .eq('customer_id', customerId)
-        .eq('vendor_id', vendor_id)
+        .eq('store_id', store_id)
         .single()
 
       if (!existingLink) {
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
           .insert({
             fingerprint_id,
             customer_id: customerId,
-            vendor_id,
+            store_id,
             link_source: 'checkout_success',
             confidence: 'high',
           })

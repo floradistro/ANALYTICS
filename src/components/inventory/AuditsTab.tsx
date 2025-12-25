@@ -30,7 +30,7 @@ const ADJUSTMENT_TYPE_CONFIG: Record<AdjustmentType, { label: string; color: str
 }
 
 export function AuditsTab() {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     adjustments,
     adjustmentStats,
@@ -52,16 +52,16 @@ export function AuditsTab() {
 
   // Load data on mount
   useEffect(() => {
-    if (vendorId) {
-      loadLocations(vendorId)
-      loadAdjustments(vendorId, { limit: 100 })
+    if (storeId) {
+      loadLocations(storeId)
+      loadAdjustments(storeId, { limit: 100 })
     }
-  }, [vendorId])
+  }, [storeId])
 
   // Reload when filters change
   useEffect(() => {
-    if (vendorId) {
-      loadAdjustments(vendorId, {
+    if (storeId) {
+      loadAdjustments(storeId, {
         locationId: locationFilter || undefined,
         adjustmentType: typeFilter === 'all' ? undefined : typeFilter,
         startDate: dateRange.start || undefined,
@@ -69,7 +69,7 @@ export function AuditsTab() {
         limit: 100,
       })
     }
-  }, [vendorId, locationFilter, typeFilter, dateRange])
+  }, [storeId, locationFilter, typeFilter, dateRange])
 
   // Filter by search
   const filteredAdjustments = useMemo(() => {

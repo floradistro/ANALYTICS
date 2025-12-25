@@ -36,7 +36,7 @@ const QUALITY_TIERS = [
 // Field types for vendor_product_fields
 interface VendorProductField {
   id: string
-  vendor_id: string
+  store_id: string
   field_id: string
   field_definition: {
     type: 'text' | 'number' | 'select' | 'boolean' | 'date'
@@ -75,7 +75,7 @@ export function CategoryDetailModal({
   categories,
   onClose,
 }: CategoryDetailModalProps) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     pricingTemplates,
     loadCategories,
@@ -127,12 +127,12 @@ export function CategoryDetailModal({
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !vendorId) return
+    if (!file || !storeId) return
 
     setIsUploading(true)
     try {
       const fileExt = file.name.split('.').pop()
-      const fileName = `${vendorId}/categories/${Date.now()}.${fileExt}`
+      const fileName = `${storeId}/categories/${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('images')
@@ -155,13 +155,13 @@ export function CategoryDetailModal({
 
   // Load category fields
   const loadCategoryFields = async () => {
-    if (!vendorId || !category) return
+    if (!storeId || !category) return
     setIsLoadingFields(true)
     try {
       const { data, error } = await supabase
         .from('vendor_product_fields')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('category_id', category.id)
         .order('sort_order', { ascending: true })
 
@@ -205,16 +205,16 @@ export function CategoryDetailModal({
   }, [category, mode, pricingTemplates, categories])
 
   const handleSaveCategory = async () => {
-    if (!vendorId || !categoryForm.name.trim()) return
+    if (!storeId || !categoryForm.name.trim()) return
 
     setIsSaving(true)
     try {
       if (mode === 'edit' && category) {
         await updateCategory(category.id, categoryForm)
       } else {
-        await createCategory(vendorId, categoryForm)
+        await createCategory(storeId, categoryForm)
       }
-      await loadCategories(vendorId)
+      await loadCategories(storeId)
       onClose()
     } finally {
       setIsSaving(false)
@@ -222,7 +222,7 @@ export function CategoryDetailModal({
   }
 
   const handleAddField = async () => {
-    if (!vendorId || !category || !newField.label.trim()) return
+    if (!storeId || !category || !newField.label.trim()) return
     setIsSaving(true)
     try {
       const fieldId = newField.label
@@ -241,7 +241,7 @@ export function CategoryDetailModal({
       }
 
       const { error } = await supabase.from('vendor_product_fields').insert({
-        vendor_id: vendorId,
+        store_id: storeId,
         category_id: category.id,
         field_id: fieldId,
         field_definition: fieldDefinition,
@@ -260,7 +260,7 @@ export function CategoryDetailModal({
   }
 
   const handleDeleteField = async (fieldId: string) => {
-    if (!vendorId) return
+    if (!storeId) return
     try {
       const { error } = await supabase
         .from('vendor_product_fields')
@@ -311,7 +311,7 @@ export function CategoryDetailModal({
   }
 
   const handleSaveTemplate = async () => {
-    if (!vendorId || !editingTemplate || !editingTemplate.name.trim()) return
+    if (!storeId || !editingTemplate || !editingTemplate.name.trim()) return
     if (!category && mode === 'create') return // Need to save category first
 
     setIsSaving(true)
@@ -326,7 +326,7 @@ export function CategoryDetailModal({
         })
       } else if (category) {
         // Create new template
-        await createPricingTemplate(vendorId, {
+        await createPricingTemplate(storeId, {
           name: editingTemplate.name,
           description: editingTemplate.description,
           category_id: category.id,
@@ -334,7 +334,7 @@ export function CategoryDetailModal({
           default_tiers: editingTemplate.tiers,
         })
       }
-      await loadPricingTemplates(vendorId)
+      await loadPricingTemplates(storeId)
       setEditingTemplate(null)
       setExpandedTemplate(null)
     } finally {
@@ -343,9 +343,9 @@ export function CategoryDetailModal({
   }
 
   const handleDeleteTemplate = async (templateId: string) => {
-    if (!vendorId) return
+    if (!storeId) return
     await deletePricingTemplate(templateId)
-    await loadPricingTemplates(vendorId)
+    await loadPricingTemplates(storeId)
   }
 
   const handleTierChange = (index: number, field: keyof PriceTier, value: any) => {

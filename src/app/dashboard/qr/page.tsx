@@ -51,7 +51,7 @@ const TAB_CONFIG: { key: QRType; label: string; icon: typeof QrCode }[] = [
 ]
 
 export default function QRDashboard() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
 
   const [activeTab, setActiveTab] = useState<QRType>('all')
   const [qrCodes, setQrCodes] = useState<QRCode[]>([])
@@ -66,11 +66,11 @@ export default function QRDashboard() {
   const [selectedQR, setSelectedQR] = useState<QRCode | null>(null)
 
   const fetchQRCodes = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     try {
-      const params = new URLSearchParams({ vendor_id: vendorId })
+      const params = new URLSearchParams({ store_id: storeId })
       if (activeTab !== 'all') {
         params.set('type', activeTab)
       }
@@ -96,7 +96,7 @@ export default function QRDashboard() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, activeTab])
+  }, [storeId, activeTab])
 
   useEffect(() => {
     fetchQRCodes()
@@ -337,7 +337,7 @@ export default function QRDashboard() {
         isOpen={!!selectedQR}
         onClose={() => setSelectedQR(null)}
         qrCode={selectedQR}
-        vendorId={vendorId || ''}
+        storeId={storeId || ''}
       />
     </div>
   )

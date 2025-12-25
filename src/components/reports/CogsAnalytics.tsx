@@ -22,7 +22,7 @@ import { nivoTheme, colors } from '@/lib/theme'
 import { AnalyticsModal } from '@/components/modals/AnalyticsModal'
 
 export default function CogsAnalytics() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange, filters } = useDashboardStore()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [selectedAnalytics, setSelectedAnalytics] = useState<any>(null)
@@ -47,15 +47,15 @@ export default function CogsAnalytics() {
 
   // Fetch all data on mount and date/location change
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       const locationIds = filters.locationIds.length > 0 ? filters.locationIds : undefined
-      fetchProductProfitability(vendorId, dateRange.start, dateRange.end, locationIds)
-      fetchDailySalesProfit(vendorId, dateRange.start, dateRange.end, locationIds)
-      fetchSupplierCostComparison(vendorId, locationIds)
-      fetchInventoryValuation(vendorId, locationIds)
-      fetchCostTrends(vendorId, undefined, locationIds)
+      fetchProductProfitability(storeId, dateRange.start, dateRange.end, locationIds)
+      fetchDailySalesProfit(storeId, dateRange.start, dateRange.end, locationIds)
+      fetchSupplierCostComparison(storeId, locationIds)
+      fetchInventoryValuation(storeId, locationIds)
+      fetchCostTrends(storeId, undefined, locationIds)
     }
-  }, [vendorId, dateRange, filters.locationIds, fetchProductProfitability, fetchDailySalesProfit, fetchSupplierCostComparison, fetchInventoryValuation, fetchCostTrends])
+  }, [storeId, dateRange, filters.locationIds, fetchProductProfitability, fetchDailySalesProfit, fetchSupplierCostComparison, fetchInventoryValuation, fetchCostTrends])
 
   // Calculate summary metrics
   const summaryMetrics = useMemo(() => {

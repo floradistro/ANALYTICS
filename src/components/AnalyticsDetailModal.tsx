@@ -31,7 +31,7 @@ interface AnalyticsDetailModalProps {
   onClose: () => void
   type: 'rage' | 'scroll' | 'heatmap' | 'recording' | 'visitors' | 'pages'
   title: string
-  vendorId: string
+  storeId: string
   dateRange: { start: string; end: string }
 }
 
@@ -39,7 +39,7 @@ export function AnalyticsDetailModal({
   isOpen,
   onClose,
   type,
-  vendorId,
+  storeId,
   dateRange
 }: AnalyticsDetailModalProps) {
   const [data, setData] = useState<BehavioralRecord[]>([])
@@ -53,7 +53,7 @@ export function AnalyticsDetailModal({
       setLoading(true)
       try {
         const response = await fetch(
-          `/api/analytics/behavioral-details?vendor_id=${vendorId}&type=${type}&start=${dateRange.start}&end=${dateRange.end}&limit=100`
+          `/api/analytics/behavioral-details?store_id=${storeId}&type=${type}&start=${dateRange.start}&end=${dateRange.end}&limit=100`
         )
         const result = await response.json()
         const items = result.items || []
@@ -75,7 +75,7 @@ export function AnalyticsDetailModal({
     }
 
     fetchData()
-  }, [isOpen, type, vendorId, dateRange])
+  }, [isOpen, type, storeId, dateRange])
 
   if (!isOpen) return null
 

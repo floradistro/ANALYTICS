@@ -32,7 +32,7 @@ interface TransferDetailModalProps {
 }
 
 export function TransferDetailModal({ isOpen, transferId, onClose }: TransferDetailModalProps) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     selectedTransfer,
     isLoadingTransferDetail,
@@ -71,20 +71,20 @@ export function TransferDetailModal({ isOpen, transferId, onClose }: TransferDet
   }, [selectedTransfer])
 
   const handleStatusUpdate = async (newStatus: TransferStatus) => {
-    if (!vendorId) return
+    if (!storeId) return
     setIsUpdating(true)
 
     const { data: { user } } = await supabase.auth.getUser()
     const result = await updateTransferStatus(transferId, newStatus, user?.id)
 
     if (result.success) {
-      await loadTransfers(vendorId)
+      await loadTransfers(storeId)
     }
     setIsUpdating(false)
   }
 
   const handleReceiveItems = async () => {
-    if (!vendorId || !selectedTransfer) return
+    if (!storeId || !selectedTransfer) return
     setIsUpdating(true)
 
     const { data: { user } } = await supabase.auth.getUser()
@@ -103,7 +103,7 @@ export function TransferDetailModal({ isOpen, transferId, onClose }: TransferDet
     const result = await receiveTransferItems(transferId, itemsToReceive, user?.id)
 
     if (result.success) {
-      await loadTransfers(vendorId)
+      await loadTransfers(storeId)
       setShowReceiveMode(false)
     }
     setIsUpdating(false)

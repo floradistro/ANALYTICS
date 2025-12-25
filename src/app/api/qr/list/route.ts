@@ -6,11 +6,11 @@ export async function GET(request: NextRequest) {
   const supabase = createServerClient()
   const { searchParams } = new URL(request.url)
 
-  const vendorId = searchParams.get('vendor_id')
+  const storeId = searchParams.get('store_id')
   const type = searchParams.get('type')
 
-  if (!vendorId) {
-    return NextResponse.json({ error: 'vendor_id is required' }, { status: 400 })
+  if (!storeId) {
+    return NextResponse.json({ error: 'store_id is required' }, { status: 400 })
   }
 
   try {
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('qr_codes')
       .select(`
-        id, vendor_id, code, name, type,
+        id, store_id, code, name, type,
         destination_url, landing_page_url,
         qr_style, eye_style,
         logo_url, brand_color,
@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
         total_scans, unique_scans, last_scanned_at,
         customer_id, staff_id, sold_at, unit_price, quantity_index, location_name
       `)
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .order('created_at', { ascending: false })
 
     if (type && type !== 'all') {

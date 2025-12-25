@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       code,
-      vendor_id,
+      store_id,
       // Visitor tracking
       visitor_id,
       fingerprint_id,
@@ -47,8 +47,8 @@ export async function POST(request: NextRequest) {
       .select('*')
       .eq('code', code)
 
-    if (vendor_id) {
-      query = query.eq('vendor_id', vendor_id)
+    if (store_id) {
+      query = query.eq('store_id', store_id)
     }
 
     const { data: qrCode, error: qrError } = await query.maybeSingle()
@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
     // Create scan record
     const scanData: any = {
       qr_code_id: qrCode.id,
-      vendor_id: qrCode.vendor_id,
+      store_id: qrCode.store_id,
       visitor_id,
       fingerprint_id,
       session_id,
@@ -228,7 +228,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
 
   const code = searchParams.get('code')
-  const vendorId = searchParams.get('vendor_id')
+  const storeId = searchParams.get('store_id')
 
   if (!code) {
     return NextResponse.json({ error: 'code is required' }, { status: 400 })
@@ -239,8 +239,8 @@ export async function GET(request: NextRequest) {
     .select('*')
     .eq('code', code)
 
-  if (vendorId) {
-    query = query.eq('vendor_id', vendorId)
+  if (storeId) {
+    query = query.eq('store_id', storeId)
   }
 
   const { data: qrCode, error } = await query.maybeSingle()

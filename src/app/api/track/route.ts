@@ -212,7 +212,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       page_url,
       page_path,
       referrer,
@@ -246,8 +246,8 @@ export async function POST(request: NextRequest) {
       geolocation_accuracy: browserGeoAccuracy,
     } = body
 
-    if (!vendor_id) {
-      return NextResponse.json({ error: 'vendor_id required' }, { status: 400, headers: corsHeaders })
+    if (!store_id) {
+      return NextResponse.json({ error: 'store_id required' }, { status: 400, headers: corsHeaders })
     }
 
     // Get geolocation with priority: browser GPS > ipinfo.io > Vercel headers
@@ -386,7 +386,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('website_visitors')
       .upsert({
-        vendor_id,
+        store_id,
         session_id: sessionId,
         visitor_id,
         fingerprint_id: fingerprint_id || null,
@@ -420,7 +420,7 @@ export async function POST(request: NextRequest) {
         geolocation_accuracy: geoAccuracy,
         postal_code: postalCode,
       }, {
-        onConflict: 'vendor_id,session_id'
+        onConflict: 'store_id,session_id'
       })
 
     if (error) {
@@ -443,7 +443,7 @@ export async function POST(request: NextRequest) {
     const { error: pvError } = await supabase
       .from('page_views')
       .insert({
-        vendor_id,
+        store_id,
         visitor_id,
         session_id: sessionId,
         page_url,
@@ -483,9 +483,9 @@ function generateSessionId(): string {
 // Also handle GET for simple tracking pixel
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
-  const vendor_id = url.searchParams.get('v')
+  const store_id = url.searchParams.get('v')
 
-  if (!vendor_id) {
+  if (!store_id) {
     return new NextResponse('', { status: 204 })
   }
 
@@ -503,7 +503,7 @@ export async function GET(request: NextRequest) {
   await supabase
     .from('website_visitors')
     .upsert({
-      vendor_id,
+      store_id,
       session_id: sessionId,
       latitude: latitude ? parseFloat(latitude) : null,
       longitude: longitude ? parseFloat(longitude) : null,
@@ -513,7 +513,7 @@ export async function GET(request: NextRequest) {
       user_agent: userAgent.substring(0, 500),
       device_type: deviceType,
     }, {
-      onConflict: 'vendor_id,session_id'
+      onConflict: 'store_id,session_id'
     })
 
   // Return 1x1 transparent GIF

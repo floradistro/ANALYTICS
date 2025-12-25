@@ -100,7 +100,7 @@ export function ProductModal({
   pricingTemplates,
   onClose,
 }: ProductModalProps) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const { createProduct, updateProduct, loadProducts } = useProductsStore()
 
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -156,12 +156,12 @@ export function ProductModal({
 
   // Load category fields when category changes
   useEffect(() => {
-    if (formData.primary_category_id && vendorId) {
+    if (formData.primary_category_id && storeId) {
       loadCategoryFields(formData.primary_category_id)
     } else {
       setCategoryFields([])
     }
-  }, [formData.primary_category_id, vendorId])
+  }, [formData.primary_category_id, storeId])
 
   const loadFullProductDetails = async (productId: string) => {
     setIsLoadingDetails(true)
@@ -261,12 +261,12 @@ export function ProductModal({
   }
 
   const loadCategoryFields = async (categoryId: string) => {
-    if (!vendorId) return
+    if (!storeId) return
     try {
       const { data } = await supabase
         .from('vendor_product_fields')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .or(`category_id.eq.${categoryId},category_id.is.null`)
         .eq('is_active', true)
         .order('sort_order', { ascending: true })
@@ -303,7 +303,7 @@ export function ProductModal({
   }
 
   const handleSave = async () => {
-    if (!vendorId || !formData.name.trim()) return
+    if (!storeId || !formData.name.trim()) return
 
     setIsSaving(true)
     try {
@@ -325,9 +325,9 @@ export function ProductModal({
 
         if (error) throw error
       } else {
-        await createProduct(vendorId, formData)
+        await createProduct(storeId, formData)
       }
-      await loadProducts(vendorId)
+      await loadProducts(storeId)
       onClose()
     } catch (err) {
       console.error('Save error:', err)
@@ -354,12 +354,12 @@ export function ProductModal({
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file || !vendorId) return
+    if (!file || !storeId) return
 
     setIsUploadingImage(true)
     try {
       const fileExt = file.name.split('.').pop()
-      const fileName = `${vendorId}/products/${Date.now()}.${fileExt}`
+      const fileName = `${storeId}/products/${Date.now()}.${fileExt}`
 
       const { error: uploadError } = await supabase.storage
         .from('images')

@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       visitor_id,
       session_id,
       page_url,
@@ -32,15 +32,15 @@ export async function POST(request: NextRequest) {
       collected_at,
     } = body
 
-    if (!vendor_id || !type) {
+    if (!store_id || !type) {
       return NextResponse.json(
-        { error: 'vendor_id and type required' },
+        { error: 'store_id and type required' },
         { status: 400, headers: corsHeaders }
       )
     }
 
     console.log('[Behavioral API] Received:', {
-      vendor_id,
+      store_id,
       visitor_id: visitor_id?.substring(0, 20),
       type,
       dataSize: JSON.stringify(data).length,
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabase
       .from('behavioral_data')
       .insert({
-        vendor_id,
+        store_id,
         visitor_id,
         session_id,
         page_url,
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
           rage_click_count: rageCount,
           has_ux_issues: true,
         })
-        .eq('vendor_id', vendor_id)
+        .eq('store_id', store_id)
         .eq('session_id', session_id)
     }
 
@@ -101,13 +101,13 @@ export async function POST(request: NextRequest) {
 // GET endpoint to retrieve behavioral data for a session (for replay)
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
-  const vendor_id = url.searchParams.get('vendor_id')
+  const store_id = url.searchParams.get('store_id')
   const session_id = url.searchParams.get('session_id')
   const type = url.searchParams.get('type')
 
-  if (!vendor_id) {
+  if (!store_id) {
     return NextResponse.json(
-      { error: 'vendor_id required' },
+      { error: 'store_id required' },
       { status: 400, headers: corsHeaders }
     )
   }
@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('behavioral_data')
     .select('*')
-    .eq('vendor_id', vendor_id)
+    .eq('store_id', store_id)
     .order('collected_at', { ascending: true })
 
   if (session_id) {

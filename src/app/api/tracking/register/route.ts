@@ -41,13 +41,13 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { trackingNumbers, vendorId, orderId } = body
+    const { trackingNumbers, storeId, orderId } = body
 
     if (!trackingNumbers || !Array.isArray(trackingNumbers) || trackingNumbers.length === 0) {
       return NextResponse.json({ error: 'Missing tracking numbers' }, { status: 400 })
     }
 
-    if (!vendorId) {
+    if (!storeId) {
       return NextResponse.json({ error: 'Missing vendor ID' }, { status: 400 })
     }
 
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
           .insert({
             tracking_number: cleanTrackingNumber,
             order_id: orderId || null,
-            vendor_id: vendorId,
+            store_id: storeId,
             easypost_tracker_id: tracker.id,
             carrier: tracker.carrier || 'USPS',
             status: mapStatus(tracker.status || ''),

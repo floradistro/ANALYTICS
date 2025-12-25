@@ -35,7 +35,7 @@ interface DashboardState {
   setFilters: (filters: FilterState) => void
   setLocationIds: (locationIds: string[]) => void
   resetFilters: () => void
-  fetchLocations: (vendorId: string) => Promise<void>
+  fetchLocations: (storeId: string) => Promise<void>
 }
 
 const defaultFilters: FilterState = {
@@ -73,13 +73,13 @@ export const useDashboardStore = create<DashboardState>((set) => ({
 
   resetFilters: () => set({ filters: { ...defaultFilters } }),
 
-  fetchLocations: async (vendorId: string) => {
+  fetchLocations: async (storeId: string) => {
     set({ isLoadingLocations: true })
     try {
       const { data, error } = await supabase
         .from('locations')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('name')
 
       if (error) throw error

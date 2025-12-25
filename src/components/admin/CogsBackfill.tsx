@@ -20,7 +20,7 @@ interface AnalysisStats {
 }
 
 export function CogsBackfill() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isBackfilling, setIsBackfilling] = useState(false)
   const [analysisStats, setAnalysisStats] = useState<AnalysisStats | null>(null)
@@ -28,7 +28,7 @@ export function CogsBackfill() {
   const [error, setError] = useState<string | null>(null)
 
   const analyzeData = async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     setIsAnalyzing(true)
     setError(null)
@@ -38,14 +38,14 @@ export function CogsBackfill() {
       const { count: totalMissing } = await supabase
         .from('order_items')
         .select('*', { count: 'exact', head: true })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .is('cost_per_unit', null)
 
       // Count items that can be backfilled from product cost_price
       const { data: backfillableItems } = await supabase
         .from('order_items')
         .select('id, line_subtotal, products!inner(cost_price)')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .is('cost_per_unit', null)
         .not('products.cost_price', 'is', null)
         .gt('products.cost_price', 0)
@@ -57,7 +57,7 @@ export function CogsBackfill() {
       const { data: dateRange } = await supabase
         .from('order_items')
         .select('orders!inner(created_at)')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .is('cost_per_unit', null)
         .order('orders(created_at)', { ascending: true })
         .limit(1)
@@ -65,7 +65,7 @@ export function CogsBackfill() {
       const { data: latestDateRange } = await supabase
         .from('order_items')
         .select('orders!inner(created_at)')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .is('cost_per_unit', null)
         .order('orders(created_at)', { ascending: false })
         .limit(1)
@@ -86,7 +86,7 @@ export function CogsBackfill() {
   }
 
   const runBackfill = async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     setIsBackfilling(true)
     setError(null)

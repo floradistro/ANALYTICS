@@ -20,7 +20,7 @@ interface CreateTransferModalProps {
 }
 
 export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProps) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const { locations, loadLocations, createTransfer, loadTransfers } = useInventoryStore()
 
   const [sourceLocationId, setSourceLocationId] = useState('')
@@ -37,14 +37,14 @@ export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProp
   const [showSearch, setShowSearch] = useState(false)
 
   useEffect(() => {
-    if (vendorId && locations.length === 0) {
-      loadLocations(vendorId)
+    if (storeId && locations.length === 0) {
+      loadLocations(storeId)
     }
-  }, [vendorId, locations.length])
+  }, [storeId, locations.length])
 
   // Search products when query changes
   useEffect(() => {
-    if (!searchQuery || !sourceLocationId || !vendorId) {
+    if (!searchQuery || !sourceLocationId || !storeId) {
       setSearchResults([])
       return
     }
@@ -60,7 +60,7 @@ export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProp
             quantity,
             products (id, name, sku)
           `)
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('location_id', sourceLocationId)
           .gt('quantity', 0)
           .limit(10)
@@ -95,7 +95,7 @@ export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProp
 
     const debounce = setTimeout(search, 300)
     return () => clearTimeout(debounce)
-  }, [searchQuery, sourceLocationId, vendorId])
+  }, [searchQuery, sourceLocationId, storeId])
 
   const availableDestinations = useMemo(() => {
     return locations.filter((loc) => loc.id !== sourceLocationId)
@@ -138,12 +138,12 @@ export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProp
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!vendorId || !sourceLocationId || !destinationLocationId || items.length === 0) return
+    if (!storeId || !sourceLocationId || !destinationLocationId || items.length === 0) return
 
     setIsSubmitting(true)
     setError(null)
 
-    const result = await createTransfer(vendorId, {
+    const result = await createTransfer(storeId, {
       source_location_id: sourceLocationId,
       destination_location_id: destinationLocationId,
       notes: notes || undefined,
@@ -156,7 +156,7 @@ export function CreateTransferModal({ isOpen, onClose }: CreateTransferModalProp
     setIsSubmitting(false)
 
     if (result.success) {
-      await loadTransfers(vendorId)
+      await loadTransfers(storeId)
       onClose()
     } else {
       setError(result.error || 'Failed to create transfer')

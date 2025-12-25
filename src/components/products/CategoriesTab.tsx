@@ -19,7 +19,7 @@ import { useAuthStore } from '@/stores/auth.store'
 import { CategoryDetailModal } from './CategoryDetailModal'
 
 export function CategoriesTab() {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     categories,
     pricingTemplates,
@@ -40,11 +40,11 @@ export function CategoriesTab() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   useEffect(() => {
-    if (vendorId) {
-      loadCategories(vendorId)
-      loadPricingTemplates(vendorId)
+    if (storeId) {
+      loadCategories(storeId)
+      loadPricingTemplates(storeId)
     }
-  }, [vendorId])
+  }, [storeId])
 
   const filteredCategories = categories.filter(
     (cat) =>

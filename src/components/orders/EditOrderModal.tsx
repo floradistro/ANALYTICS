@@ -247,7 +247,7 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
         const { data: productsData } = await supabase
           .from('products')
           .select('id, name, sku, price')
-          .eq('vendor_id', orderData.vendor_id)
+          .eq('store_id', orderData.store_id)
           .order('name')
           .limit(100)
 
@@ -281,7 +281,7 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
             const { data: sessionData } = await supabase
               .from('website_visitors')
               .select('*')
-              .eq('vendor_id', orderData.vendor_id)
+              .eq('store_id', orderData.store_id)
               .eq('session_id', sessionId)
               .maybeSingle()
 
@@ -293,7 +293,7 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
             const { data: pageViewsData } = await supabase
               .from('page_views')
               .select('*')
-              .eq('vendor_id', orderData.vendor_id)
+              .eq('store_id', orderData.store_id)
               .eq('visitor_id', visitorId)
               .order('created_at', { ascending: false })
               .limit(50)
@@ -306,7 +306,7 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
             const { data: eventsData } = await supabase
               .from('analytics_events')
               .select('*')
-              .eq('vendor_id', orderData.vendor_id)
+              .eq('store_id', orderData.store_id)
               .eq('visitor_id', visitorId)
               .order('timestamp', { ascending: false })
               .limit(100)

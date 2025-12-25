@@ -26,9 +26,9 @@ export type TemplateSlug =
   | 'back_in_stock'
   | 'order_status_update'
 
-export interface VendorEmailSettings {
+export interface StoreEmailSettings {
   id: string
-  vendor_id: string
+  store_id: string
   from_name: string
   from_email: string
   reply_to?: string
@@ -57,13 +57,16 @@ export interface VendorEmailSettings {
   updated_at?: string
 }
 
+// Backward compatibility alias
+export type VendorEmailSettings = StoreEmailSettings
+
 export interface SendEmailParams {
   to: string
   toName?: string
   subject?: string
   templateSlug: TemplateSlug
   data: Record<string, unknown>
-  vendorId: string
+  storeId: string
   customerId?: string
   orderId?: string
 }
@@ -91,7 +94,7 @@ export class EmailService {
           subject: params.subject,
           templateSlug: params.templateSlug,
           data: params.data,
-          vendorId: params.vendorId,
+          storeId: params.storeId,
           customerId: params.customerId,
           orderId: params.orderId,
           emailType: 'transactional',
@@ -122,7 +125,7 @@ export class EmailService {
   // ===========================================================================
 
   static async sendReceipt(params: {
-    vendorId: string
+    storeId: string
     orderId: string
     customerEmail: string
     customerName?: string
@@ -139,7 +142,7 @@ export class EmailService {
       to: params.customerEmail,
       toName: params.customerName,
       templateSlug: 'receipt',
-      vendorId: params.vendorId,
+      storeId: params.storeId,
       orderId: params.orderId,
       customerId: params.customerId,
       data: {
@@ -155,7 +158,7 @@ export class EmailService {
   }
 
   static async sendOrderConfirmation(params: {
-    vendorId: string
+    storeId: string
     orderId: string
     customerEmail: string
     customerName?: string
@@ -172,7 +175,7 @@ export class EmailService {
       to: params.customerEmail,
       toName: params.customerName,
       templateSlug: 'order_confirmation',
-      vendorId: params.vendorId,
+      storeId: params.storeId,
       orderId: params.orderId,
       customerId: params.customerId,
       data: {
@@ -189,7 +192,7 @@ export class EmailService {
   }
 
   static async sendOrderShipped(params: {
-    vendorId: string
+    storeId: string
     orderId: string
     customerEmail: string
     customerName?: string
@@ -204,7 +207,7 @@ export class EmailService {
       to: params.customerEmail,
       toName: params.customerName,
       templateSlug: 'order_shipped',
-      vendorId: params.vendorId,
+      storeId: params.storeId,
       orderId: params.orderId,
       customerId: params.customerId,
       data: {
@@ -219,14 +222,14 @@ export class EmailService {
   }
 
   // ===========================================================================
-  // VENDOR SETTINGS
+  // STORE SETTINGS
   // ===========================================================================
 
-  static async getVendorSettings(vendorId: string): Promise<VendorEmailSettings | null> {
+  static async getStoreSettings(storeId: string): Promise<StoreEmailSettings | null> {
     const { data, error } = await supabase
-      .from('vendor_email_settings')
+      .from('store_email_settings')
       .select('*')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .single()
 
     if (error) {
@@ -238,15 +241,20 @@ export class EmailService {
     return data
   }
 
-  static async updateVendorSettings(
-    vendorId: string,
-    settings: Partial<VendorEmailSettings>
-  ): Promise<VendorEmailSettings | null> {
+  // Backward compatibility alias
+  static async getVendorSettings(storeId: string): Promise<StoreEmailSettings | null> {
+    return this.getStoreSettings(storeId)
+  }
+
+  static async updateStoreSettings(
+    storeId: string,
+    settings: Partial<StoreEmailSettings>
+  ): Promise<StoreEmailSettings | null> {
     const { data, error } = await supabase
-      .from('vendor_email_settings')
+      .from('store_email_settings')
       .upsert(
-        { vendor_id: vendorId, ...settings, updated_at: new Date().toISOString() },
-        { onConflict: 'vendor_id' }
+        { store_id: storeId, ...settings, updated_at: new Date().toISOString() },
+        { onConflict: 'store_id' }
       )
       .select()
       .single()
@@ -259,16 +267,27 @@ export class EmailService {
     return data
   }
 
+  // Backward compatibility alias
+  static async updateVendorSettings(
+    storeId: string,
+    settings: Partial<StoreEmailSettings>
+  ): Promise<StoreEmailSettings | null> {
+    return this.updateStoreSettings(storeId, settings)
+  }
+
   // ===========================================================================
   // TEST EMAILS
   // ===========================================================================
 
   static async sendTestEmail(params: {
-    vendorId: string
+    storeId: string
     to: string
     templateSlug?: TemplateSlug
+    // Backward compat
+    vendorId?: string
   }): Promise<SendEmailResponse> {
     const template = params.templateSlug || 'welcome'
+    const storeId = params.storeId || params.vendorId!
 
     const testData: Record<TemplateSlug, Record<string, unknown>> = {
       receipt: {
@@ -339,7 +358,7 @@ export class EmailService {
     return this.send({
       to: params.to,
       templateSlug: template,
-      vendorId: params.vendorId,
+      storeId: storeId,
       data: testData[template],
     })
   }

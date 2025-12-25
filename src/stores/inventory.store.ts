@@ -44,7 +44,7 @@ export interface Location {
 
 export interface InventoryItem {
   id: string
-  vendor_id: string
+  store_id: string
   location_id: string
   location_name?: string
   product_id: string
@@ -64,7 +64,7 @@ export interface InventoryItem {
 
 export interface InventoryAdjustment {
   id: string
-  vendor_id: string
+  store_id: string
   product_id: string
   product_name?: string
   product_sku?: string
@@ -86,7 +86,7 @@ export interface InventoryAdjustment {
 
 export interface InventoryTransfer {
   id: string
-  vendor_id: string
+  store_id: string
   transfer_number: string
   source_location_id: string
   source_location_name?: string
@@ -187,16 +187,16 @@ interface InventoryState {
   transferSubscription: RealtimeChannel | null
 
   // Actions - Inventory
-  loadInventory: (vendorId: string, params?: {
+  loadInventory: (storeId: string, params?: {
     locationId?: string
     category?: string
     stockStatus?: 'in_stock' | 'low_stock' | 'out_of_stock'
     search?: string
   }) => Promise<void>
-  loadLocations: (vendorId: string) => Promise<void>
+  loadLocations: (storeId: string) => Promise<void>
 
   // Actions - Adjustments
-  loadAdjustments: (vendorId: string, params?: {
+  loadAdjustments: (storeId: string, params?: {
     locationId?: string
     productId?: string
     adjustmentType?: AdjustmentType
@@ -204,15 +204,15 @@ interface InventoryState {
     endDate?: string
     limit?: number
   }) => Promise<void>
-  createAdjustment: (vendorId: string, input: CreateAdjustmentInput) => Promise<{ success: boolean; error?: string }>
+  createAdjustment: (storeId: string, input: CreateAdjustmentInput) => Promise<{ success: boolean; error?: string }>
 
   // Actions - Transfers
-  loadTransfers: (vendorId: string, params?: {
+  loadTransfers: (storeId: string, params?: {
     status?: TransferStatus
     locationId?: string
   }) => Promise<void>
   loadTransferDetail: (transferId: string) => Promise<void>
-  createTransfer: (vendorId: string, input: CreateTransferInput) => Promise<{ success: boolean; transferId?: string; error?: string }>
+  createTransfer: (storeId: string, input: CreateTransferInput) => Promise<{ success: boolean; transferId?: string; error?: string }>
   updateTransferStatus: (transferId: string, status: TransferStatus, userId?: string) => Promise<{ success: boolean; error?: string }>
   receiveTransferItems: (transferId: string, items: {
     item_id: string
@@ -227,8 +227,8 @@ interface InventoryState {
   setStockStatusFilter: (status: 'all' | 'in_stock' | 'low_stock' | 'out_of_stock') => void
 
   // Real-time
-  subscribeToInventory: (vendorId: string) => void
-  subscribeToTransfers: (vendorId: string) => void
+  subscribeToInventory: (storeId: string) => void
+  subscribeToTransfers: (storeId: string) => void
   unsubscribe: () => void
 
   // Helpers
@@ -279,7 +279,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   // INVENTORY ACTIONS
   // ==========================================================================
 
-  loadInventory: async (vendorId, params = {}) => {
+  loadInventory: async (storeId, params = {}) => {
     set({ isLoading: true, error: null })
 
     try {
@@ -290,7 +290,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
           products (id, name, sku),
           locations (id, name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('updated_at', { ascending: false })
 
       if (params.locationId) {
@@ -359,12 +359,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     }
   },
 
-  loadLocations: async (vendorId) => {
+  loadLocations: async (storeId) => {
     try {
       const { data, error } = await supabase
         .from('locations')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('is_primary', { ascending: false })
         .order('name', { ascending: true })
 
@@ -380,7 +380,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   // ADJUSTMENT ACTIONS
   // ==========================================================================
 
-  loadAdjustments: async (vendorId, params = {}) => {
+  loadAdjustments: async (storeId, params = {}) => {
     set({ isLoadingAdjustments: true, error: null })
 
     try {
@@ -391,7 +391,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
           products (id, name, sku),
           locations (id, name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
 
       if (params.locationId) {
@@ -488,14 +488,14 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     }
   },
 
-  createAdjustment: async (vendorId, input) => {
+  createAdjustment: async (storeId, input) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
       const idempotencyKey = `adj-${input.product_id}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
 
       const { data, error } = await supabase.rpc('process_inventory_adjustment', {
-        p_vendor_id: vendorId,
+        p_store_id: storeId,
         p_product_id: input.product_id,
         p_location_id: input.location_id,
         p_adjustment_type: input.adjustment_type,
@@ -511,11 +511,11 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       if (error) throw error
 
       // Reload adjustments to show the new one
-      await get().loadAdjustments(vendorId, { limit: 50 })
+      await get().loadAdjustments(storeId, { limit: 50 })
 
       // Reload inventory to reflect the change
       const { locationFilter } = get()
-      await get().loadInventory(vendorId, { locationId: locationFilter || undefined })
+      await get().loadInventory(storeId, { locationId: locationFilter || undefined })
 
       return { success: true }
     } catch (err: any) {
@@ -531,7 +531,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   // TRANSFER ACTIONS
   // ==========================================================================
 
-  loadTransfers: async (vendorId, params = {}) => {
+  loadTransfers: async (storeId, params = {}) => {
     set({ isLoadingTransfers: true, error: null })
 
     try {
@@ -543,7 +543,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
           destination:locations!inventory_transfers_destination_location_id_fkey (id, name),
           inventory_transfer_items (id, quantity, received_quantity)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
 
       if (params.status) {
@@ -666,7 +666,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     }
   },
 
-  createTransfer: async (vendorId, input) => {
+  createTransfer: async (storeId, input) => {
     try {
       const { data: { user } } = await supabase.auth.getUser()
 
@@ -675,13 +675,13 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       const random = Math.random().toString(36).substring(2, 6).toUpperCase()
       const transferNumber = `TRF-${timestamp}-${random}`
 
-      const idempotencyKey = `transfer-${vendorId}-${Date.now()}`
+      const idempotencyKey = `transfer-${storeId}-${Date.now()}`
 
       // Create transfer
       const { data: transfer, error: transferError } = await supabase
         .from('inventory_transfers')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           transfer_number: transferNumber,
           source_location_id: input.source_location_id,
           destination_location_id: input.destination_location_id,
@@ -710,7 +710,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
       if (itemsError) throw itemsError
 
       // Reload transfers
-      await get().loadTransfers(vendorId)
+      await get().loadTransfers(storeId)
 
       return { success: true, transferId: transfer.id }
     } catch (err: any) {
@@ -832,7 +832,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
   // REAL-TIME
   // ==========================================================================
 
-  subscribeToInventory: (vendorId) => {
+  subscribeToInventory: (storeId) => {
     const existing = get().inventorySubscription
     if (existing) {
       supabase.removeChannel(existing)
@@ -846,12 +846,12 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
           event: '*',
           schema: 'public',
           table: 'inventory',
-          filter: `vendor_id=eq.${vendorId}`,
+          filter: `store_id=eq.${storeId}`,
         },
         () => {
           // Reload inventory on any change
           const { locationFilter } = get()
-          get().loadInventory(vendorId, { locationId: locationFilter || undefined })
+          get().loadInventory(storeId, { locationId: locationFilter || undefined })
         }
       )
       .subscribe()
@@ -859,7 +859,7 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
     set({ inventorySubscription: channel })
   },
 
-  subscribeToTransfers: (vendorId) => {
+  subscribeToTransfers: (storeId) => {
     const existing = get().transferSubscription
     if (existing) {
       supabase.removeChannel(existing)
@@ -873,10 +873,10 @@ export const useInventoryStore = create<InventoryState>((set, get) => ({
           event: '*',
           schema: 'public',
           table: 'inventory_transfers',
-          filter: `vendor_id=eq.${vendorId}`,
+          filter: `store_id=eq.${storeId}`,
         },
         () => {
-          get().loadTransfers(vendorId)
+          get().loadTransfers(storeId)
         }
       )
       .subscribe()

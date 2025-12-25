@@ -8,12 +8,12 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
-  const vendorId = url.searchParams.get('vendor_id')
+  const storeId = url.searchParams.get('store_id')
   const startDate = url.searchParams.get('start')
   const endDate = url.searchParams.get('end')
 
-  if (!vendorId) {
-    return NextResponse.json({ error: 'vendor_id required' }, { status: 400 })
+  if (!storeId) {
+    return NextResponse.json({ error: 'store_id required' }, { status: 400 })
   }
 
   const start = startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -40,16 +40,16 @@ export async function GET(request: NextRequest) {
       geoAccuracyStats,
     ] = await Promise.all([
       // Total visitors with unique counts
-      supabase.rpc('get_visitor_stats', { p_vendor_id: vendorId, p_start: start, p_end: end }),
+      supabase.rpc('get_visitor_stats', { p_store_id: storeId, p_start: start, p_end: end }),
 
       // Page view stats
-      supabase.rpc('get_pageview_stats', { p_vendor_id: vendorId, p_start: start, p_end: end }),
+      supabase.rpc('get_pageview_stats', { p_store_id: storeId, p_start: start, p_end: end }),
 
       // Top pages (aggregated)
       supabase
         .from('page_views')
         .select('page_url')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('referrer')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .not('referrer', 'is', null)
@@ -96,7 +96,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('device_type')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -120,7 +120,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('browser')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('os')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -170,7 +170,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('country')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -195,7 +195,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('channel')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -219,7 +219,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('page_views')
         .select('created_at')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -250,7 +250,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('analytics_events')
         .select('event_name, revenue')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -268,7 +268,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('checkout_attempts')
         .select('status, total_amount')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('source', 'web')
         .gte('created_at', start)
         .lte('created_at', end)
@@ -289,7 +289,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('behavioral_data')
         .select('data_type, data, page_path')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('collected_at', start)
         .lte('collected_at', end)
         .then(async ({ data }) => {
@@ -328,14 +328,14 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('id', { count: 'exact', head: true })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', new Date(Date.now() - 5 * 60 * 1000).toISOString()),
 
       // Bot vs human stats
       supabase
         .from('website_visitors')
         .select('is_bot, has_js_execution, fingerprint_id')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {
@@ -354,7 +354,7 @@ export async function GET(request: NextRequest) {
       supabase
         .from('website_visitors')
         .select('geolocation_source')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', start)
         .lte('created_at', end)
         .then(async ({ data }) => {

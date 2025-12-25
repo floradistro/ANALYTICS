@@ -26,7 +26,7 @@ import { CreatePOModal } from '@/components/inventory/CreatePOModal'
 type StatusFilter = PurchaseOrderStatus | 'all'
 
 export function PurchaseOrdersTab() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const {
     purchaseOrders,
     stats,
@@ -61,22 +61,22 @@ export function PurchaseOrdersTab() {
 
   // Load data
   useEffect(() => {
-    if (vendorId) {
-      loadPurchaseOrders(vendorId, {
+    if (storeId) {
+      loadPurchaseOrders(storeId, {
         status: statusFilter === 'all' ? undefined : statusFilter,
         supplierId: supplierFilter === 'all' ? undefined : supplierFilter,
       })
-      loadSuppliers(vendorId)
-      subscribe(vendorId)
+      loadSuppliers(storeId)
+      subscribe(storeId)
     }
 
     return () => unsubscribe()
-  }, [vendorId, statusFilter, supplierFilter])
+  }, [storeId, statusFilter, supplierFilter])
 
   // Reload after create
   const handlePOCreated = () => {
-    if (vendorId) {
-      loadPurchaseOrders(vendorId, {
+    if (storeId) {
+      loadPurchaseOrders(storeId, {
         status: statusFilter === 'all' ? undefined : statusFilter,
         supplierId: supplierFilter === 'all' ? undefined : supplierFilter,
       })

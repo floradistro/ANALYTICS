@@ -136,7 +136,7 @@ interface ActivityItem {
 }
 
 export default function MapDashboardPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange } = useDashboardStore()
   const [isLoading, setIsLoading] = useState(true)
   const [showAllTime, setShowAllTime] = useState(true)
@@ -160,13 +160,13 @@ export default function MapDashboardPage() {
 
   // Fetch shipment journeys from EasyPost tracking data
   const fetchJourneys = useCallback(async () => {
-    if (!vendorId) {
-      console.log('[Map] No vendorId, skipping journeys fetch')
+    if (!storeId) {
+      console.log('[Map] No storeId, skipping journeys fetch')
       return
     }
     try {
-      console.log('[Map] Fetching journeys for vendor:', vendorId)
-      const response = await fetch(`/api/shipments/journeys?vendorId=${vendorId}&limit=50`)
+      console.log('[Map] Fetching journeys for vendor:', storeId)
+      const response = await fetch(`/api/shipments/journeys?vendorId=${storeId}&limit=50`)
       const data = await response.json()
       console.log('[Map] Journeys response:', data.journeys?.length || 0, 'journeys,', data.totalFacilities || 0, 'facilities')
       if (data.journeys) {
@@ -177,11 +177,11 @@ export default function MapDashboardPage() {
     } catch (err) {
       console.error('[Map] Error fetching journeys:', err)
     }
-  }, [vendorId])
+  }, [storeId])
 
   // Fetch data (same logic as before)
   const fetchData = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setIsLoading(true)
     const { start, end } = getDateRangeForQuery()
 
@@ -200,7 +200,7 @@ export default function MapDashboardPage() {
             status, payment_status, created_at, tracking_number,
             customers (id, first_name, last_name, email, phone, total_spent, total_orders)
           `)
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
           .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -227,7 +227,7 @@ export default function MapDashboardPage() {
         const { data: customers, error } = await supabase
           .from('customers')
           .select('id, first_name, last_name, email, phone, street_address, city, state, postal_code, total_spent, total_orders, created_at')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .range(page * pageSize, (page + 1) * pageSize - 1)
 
         if (error) break
@@ -243,7 +243,7 @@ export default function MapDashboardPage() {
       const { data: stores } = await supabase
         .from('locations')
         .select('id, name, city, state, latitude, longitude, is_active')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
 
       const storeMap = new Map<string, { name: string; city: string | null; state: string | null; lat: number | null; lng: number | null }>()
       for (const s of stores || []) {
@@ -477,7 +477,7 @@ export default function MapDashboardPage() {
         const { data: visitors } = await supabase
           .from('website_visitors')
           .select('id, session_id, visitor_id, latitude, longitude, city, region, country, device_type, created_at, channel, utm_source, utm_medium, utm_campaign, referrer, browser, os, is_returning, page_url, geolocation_source, geolocation_accuracy')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .not('latitude', 'is', null)
           .order('created_at', { ascending: false })
           .range(visitorPage * visitorPageSize, (visitorPage + 1) * visitorPageSize - 1)
@@ -508,7 +508,7 @@ export default function MapDashboardPage() {
         const { data: pvData } = await supabase
           .from('page_views')
           .select('session_id')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .in('session_id', sessionIds.slice(0, 100)) // Limit to avoid query size issues
 
         if (pvData) {
@@ -523,7 +523,7 @@ export default function MapDashboardPage() {
         const { data: evData } = await supabase
           .from('analytics_events')
           .select('session_id, event_name, revenue')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .in('session_id', sessionIds.slice(0, 100))
 
         if (evData) {
@@ -667,7 +667,7 @@ export default function MapDashboardPage() {
     } finally {
       setIsLoading(false)
     }
-  }, [vendorId, dateRange, showAllTime])
+  }, [storeId, dateRange, showAllTime])
 
   useEffect(() => {
     fetchData()
@@ -678,14 +678,14 @@ export default function MapDashboardPage() {
   const lastVisitorTime = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!vendorId) return
+    if (!storeId) return
 
     const pollForNewVisitors = async () => {
       try {
         const query = supabase
           .from('website_visitors')
           .select('latitude, longitude, city, region, country, device_type, created_at, channel, utm_source, utm_medium, utm_campaign, referrer, browser, os, is_returning')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .not('latitude', 'is', null)
           .order('created_at', { ascending: false })
           .limit(10)
@@ -735,7 +735,7 @@ export default function MapDashboardPage() {
         const { data: events } = await supabase
           .from('analytics_events')
           .select('id, event_name, city, region, revenue, created_at')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .order('created_at', { ascending: false })
           .limit(5)
 
@@ -772,7 +772,7 @@ export default function MapDashboardPage() {
     pollForNewVisitors()
 
     return () => clearInterval(interval)
-  }, [vendorId, layers.traffic.length, activityFeed])
+  }, [storeId, layers.traffic.length, activityFeed])
 
   const formatCurrency = (n: number) => '$' + Math.round(n).toLocaleString()
 

@@ -48,7 +48,7 @@ interface POItem {
 }
 
 export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps) {
-  const { vendorId, userId } = useAuthStore()
+  const { storeId, userId } = useAuthStore()
   const { suppliers, loadSuppliers } = useSuppliersManagementStore()
 
   // Form state
@@ -79,10 +79,10 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
 
   // Load data on open
   useEffect(() => {
-    if (isOpen && vendorId) {
+    if (isOpen && storeId) {
       loadData()
     }
-  }, [isOpen, vendorId])
+  }, [isOpen, storeId])
 
   // Smart filter products by search and category
   useEffect(() => {
@@ -132,18 +132,18 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
   }, [productSearch, categoryFilter, products, items])
 
   const loadData = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoadingData(true)
 
     try {
       // Load suppliers
-      await loadSuppliers(vendorId)
+      await loadSuppliers(storeId)
 
       // Load locations
       const { data: locData } = await supabase
         .from('locations')
         .select('id, name')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('is_active', true)
         .order('name')
 
@@ -153,7 +153,7 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
       const { data: catData } = await supabase
         .from('categories')
         .select('id, name')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('name')
 
       setCategories(catData || [])
@@ -168,7 +168,7 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
           cost_price,
           categories:primary_category_id (name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('status', 'published')
         .order('name')
         .limit(1000)
@@ -314,11 +314,11 @@ export function CreatePOModal({ isOpen, onClose, onCreated }: CreatePOModalProps
       })))
 
       // Generate idempotency key for safe retries
-      const idempotencyKey = `po-${vendorId}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
+      const idempotencyKey = `po-${storeId}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
 
       // Call atomic database function to create PO + items in single transaction
       const { data: result, error: rpcError } = await supabase.rpc('create_purchase_order_atomic', {
-        p_vendor_id: vendorId,
+        p_store_id: storeId,
         p_po_type: 'inbound',
         p_items: itemsJson,
         p_supplier_id: supplierId || null,

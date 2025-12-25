@@ -78,7 +78,7 @@ interface CustomerHistory {
 
 interface CheckoutAttemptDetail {
   id: string
-  vendor_id: string
+  store_id: string
   customer_id: string | null
   customer_email: string | null
   customer_name: string | null
@@ -188,7 +188,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
           setAttemptData(data)
 
           // Fetch visitor session - prefer direct session_id match, fallback to time-window
-          if (data.vendor_id) {
+          if (data.store_id) {
             let sessionData: VisitorSession | null = null
 
             // Priority 1: Direct session_id match (most accurate)
@@ -196,7 +196,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
               const { data: directMatch } = await supabase
                 .from('website_visitors')
                 .select('*')
-                .eq('vendor_id', data.vendor_id)
+                .eq('store_id', data.store_id)
                 .eq('session_id', data.session_id)
                 .maybeSingle()
 
@@ -211,7 +211,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
               const { data: visitorMatch } = await supabase
                 .from('website_visitors')
                 .select('*')
-                .eq('vendor_id', data.vendor_id)
+                .eq('store_id', data.store_id)
                 .eq('visitor_id', data.visitor_id)
                 .gte('created_at', windowStart.toISOString())
                 .lte('created_at', data.created_at)
@@ -230,7 +230,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
               const { data: timeMatch } = await supabase
                 .from('website_visitors')
                 .select('*')
-                .eq('vendor_id', data.vendor_id)
+                .eq('store_id', data.store_id)
                 .gte('created_at', windowStart.toISOString())
                 .lte('created_at', data.created_at)
                 .order('created_at', { ascending: false })
@@ -252,7 +252,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
                 let pvQuery = supabase
                   .from('page_views')
                   .select('id, page_url, page_title, created_at')
-                  .eq('vendor_id', data.vendor_id)
+                  .eq('store_id', data.store_id)
                   .order('created_at', { ascending: false })
                   .limit(30)
 
@@ -270,7 +270,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
                 let eventsQuery = supabase
                   .from('analytics_events')
                   .select('id, event_name, event_category, event_properties, timestamp')
-                  .eq('vendor_id', data.vendor_id)
+                  .eq('store_id', data.store_id)
                   .order('timestamp', { ascending: false })
                   .limit(30)
 
@@ -299,7 +299,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
               const { data: custData } = await supabase
                 .from('customers')
                 .select('id')
-                .eq('vendor_id', data.vendor_id)
+                .eq('store_id', data.store_id)
                 .eq('email', data.customer_email)
                 .maybeSingle()
 
@@ -327,7 +327,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
             const { data: otherData } = await supabase
               .from('checkout_attempts')
               .select('*')
-              .eq('vendor_id', data.vendor_id)
+              .eq('store_id', data.store_id)
               .neq('id', data.id)
               .or(data.customer_email ? `customer_email.eq.${data.customer_email}` : `customer_id.eq.${data.customer_id}`)
               .in('status', ['declined', 'error'])
@@ -342,7 +342,7 @@ export function FailedCheckoutDetailModal({ isOpen, onClose, checkoutId, recordT
         const { data, error } = await supabase
           .from('orders')
           .select(`
-            id, order_number, customer_id, vendor_id,
+            id, order_number, customer_id, store_id,
             shipping_name, shipping_address, shipping_city, shipping_state, shipping_zip, shipping_phone,
             total_amount, subtotal, tax_amount, discount_amount, shipping_cost,
             payment_status, payment_method, payment_method_title,

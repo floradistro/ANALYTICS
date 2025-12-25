@@ -46,10 +46,10 @@ function normalizeTracking(num: string | null): string {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const vendorId = searchParams.get('vendorId')
+    const storeId = searchParams.get('vendorId')
     const limit = parseInt(searchParams.get('limit') || '50')
 
-    if (!vendorId) {
+    if (!storeId) {
       return NextResponse.json({ error: 'Missing vendorId' }, { status: 400 })
     }
 
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
     const { data: trackingData, error: trackingError } = await supabase
       .from('shipment_tracking')
       .select('*')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .order('updated_at', { ascending: false })
       .limit(limit)
 
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
         customer_id,
         customers (id, first_name, last_name, email, phone)
       `)
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .eq('order_type', 'shipping')
       .order('created_at', { ascending: false })
       .limit(200)

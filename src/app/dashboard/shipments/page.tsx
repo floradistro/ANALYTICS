@@ -82,7 +82,7 @@ function isValidUSPSTrackingNumber(trackingNumber: string | null | undefined): b
 }
 
 export default function ShipmentsPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const { dateRange } = useDashboardStore()
   const [shipments, setShipments] = useState<TrackedShipment[]>([])
   const [trackingMap, setTrackingMap] = useState<Map<string, TrackingData>>(new Map())
@@ -101,7 +101,7 @@ export default function ShipmentsPage() {
 
   // Fetch shipping orders
   const fetchShippingOrders = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     const { start, end } = getDateRangeForQuery()
 
@@ -124,7 +124,7 @@ export default function ShipmentsPage() {
             last_name
           )
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('order_type', 'shipping')
         .eq('payment_status', 'paid')
         .neq('status', 'cancelled')
@@ -140,29 +140,29 @@ export default function ShipmentsPage() {
     } finally {
       setLoading(false)
     }
-  }, [vendorId, dateRange])
+  }, [storeId, dateRange])
 
   // Fetch tracking data from database
   const fetchTrackingData = useCallback(async () => {
-    if (!vendorId) {
-      console.log('No vendorId yet')
+    if (!storeId) {
+      console.log('No storeId yet')
       return
     }
 
-    console.log('Fetching tracking data for vendor:', vendorId)
+    console.log('Fetching tracking data for vendor:', storeId)
 
     try {
       // First check all data in table (for debugging)
       const { data: allData } = await supabase
         .from('shipment_tracking')
-        .select('tracking_number, vendor_id, status')
+        .select('tracking_number, store_id, status')
         .limit(5)
       console.log('All tracking data in DB:', allData)
 
       const { data, error } = await supabase
         .from('shipment_tracking')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
 
       console.log('Tracking data for this vendor:', data, 'Error:', error)
 
@@ -191,11 +191,11 @@ export default function ShipmentsPage() {
     } catch (error) {
       console.error('Failed to fetch tracking data:', error)
     }
-  }, [vendorId])
+  }, [storeId])
 
   // Register tracking numbers that aren't in database yet
   const registerUnregisteredTrackers = useCallback(async () => {
-    if (!vendorId || shipments.length === 0) return
+    if (!storeId || shipments.length === 0) return
 
     // Get unregistered, valid tracking numbers (normalized)
     const unregisteredNumbers = shipments
@@ -222,7 +222,7 @@ export default function ShipmentsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           trackingNumbers: unregisteredNumbers,
-          vendorId,
+          storeId,
         }),
       })
 
@@ -253,11 +253,11 @@ export default function ShipmentsPage() {
       setIsRefreshing(false)
       setRegisteringNumbers(new Set())
     }
-  }, [vendorId, shipments, trackingMap, fetchTrackingData])
+  }, [storeId, shipments, trackingMap, fetchTrackingData])
 
   // Register a single tracker
   const registerSingleTracker = useCallback(async (trackingNumber: string) => {
-    if (!vendorId) return
+    if (!storeId) return
 
     // Normalize tracking number by removing spaces
     const normalizedNum = trackingNumber.replace(/\s+/g, '')
@@ -270,7 +270,7 @@ export default function ShipmentsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           trackingNumbers: [normalizedNum],
-          vendorId,
+          storeId,
         }),
       })
 
@@ -295,7 +295,7 @@ export default function ShipmentsPage() {
         return next
       })
     }
-  }, [vendorId, fetchTrackingData])
+  }, [storeId, fetchTrackingData])
 
   // Initial load
   useEffect(() => {

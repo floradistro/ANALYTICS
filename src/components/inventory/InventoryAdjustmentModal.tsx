@@ -29,7 +29,7 @@ export function InventoryAdjustmentModal({
   item,
   defaultType = 'add',
 }: InventoryAdjustmentModalProps) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const createAdjustment = useInventoryStore((s) => s.createAdjustment)
 
   const [quantity, setQuantity] = useState('')
@@ -47,7 +47,7 @@ export function InventoryAdjustmentModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!vendorId || !quantity || !reason) return
+    if (!storeId || !quantity || !reason) return
 
     // Validate
     if (isDecrease && Math.abs(quantityChange) > item.quantity) {
@@ -58,7 +58,7 @@ export function InventoryAdjustmentModal({
     setIsSubmitting(true)
     setError(null)
 
-    const result = await createAdjustment(vendorId, {
+    const result = await createAdjustment(storeId, {
       product_id: item.product_id,
       location_id: item.location_id,
       adjustment_type: adjustmentType,

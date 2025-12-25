@@ -23,7 +23,7 @@ interface CustomerWithStats extends Omit<Customer, 'order_count' | 'total_spent'
 }
 
 export default function CustomersPage() {
-  const { vendorId } = useAuthStore()
+  const { storeId } = useAuthStore()
   const [customers, setCustomers] = useState<CustomerWithStats[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -39,27 +39,27 @@ export default function CustomersPage() {
 
   // Fetch customers on page change
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       fetchCustomers()
     }
-  }, [vendorId, page])
+  }, [storeId, page])
 
   // Fetch global stats only once on mount (not on page change)
   useEffect(() => {
-    if (vendorId) {
+    if (storeId) {
       fetchCustomerStats()
     }
-  }, [vendorId])
+  }, [storeId])
 
   const fetchCustomers = async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLoading(true)
 
     try {
       const { data, error, count } = await supabase
         .from('customers')
         .select('*', { count: 'exact' })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
         .range(page * pageSize, (page + 1) * pageSize - 1)
 
@@ -126,13 +126,13 @@ export default function CustomersPage() {
   }
 
   const fetchCustomerStats = async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     try {
       const { count: total } = await supabase
         .from('customers')
         .select('*', { count: 'exact', head: true })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
 
       const startOfMonth = new Date()
       startOfMonth.setDate(1)
@@ -141,13 +141,13 @@ export default function CustomersPage() {
       const { count: newThisMonth } = await supabase
         .from('customers')
         .select('*', { count: 'exact', head: true })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .gte('created_at', startOfMonth.toISOString())
 
       const { count: topTier } = await supabase
         .from('customers')
         .select('*', { count: 'exact', head: true })
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .in('loyalty_tier', ['gold', 'platinum', 'diamond'])
 
       // Fetch all orders with pagination for accurate LTV calculation
@@ -160,7 +160,7 @@ export default function CustomersPage() {
         const { data, error } = await supabase
           .from('orders')
           .select('customer_id, total_amount')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
           .not('customer_id', 'is', null)
@@ -231,7 +231,7 @@ export default function CustomersPage() {
   }
 
   const exportCustomers = async () => {
-    if (!vendorId) return
+    if (!storeId) return
 
     try {
       // Fetch ALL customers with pagination
@@ -244,7 +244,7 @@ export default function CustomersPage() {
         const { data, error } = await supabase
           .from('customers')
           .select('*')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .order('created_at', { ascending: false })
           .range(exportPage * exportPageSize, (exportPage + 1) * exportPageSize - 1)
 

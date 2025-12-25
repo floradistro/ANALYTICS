@@ -24,7 +24,7 @@ interface ProductsTabProps {
 }
 
 export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabProps = {}) {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     products,
     categories,
@@ -54,25 +54,25 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
 
   // Load data on mount
   useEffect(() => {
-    if (vendorId) {
-      loadCategories(vendorId)
-      loadPricingTemplates(vendorId)
-      loadProducts(vendorId)
-      subscribe(vendorId)
+    if (storeId) {
+      loadCategories(storeId)
+      loadPricingTemplates(storeId)
+      loadProducts(storeId)
+      subscribe(storeId)
     }
     return () => unsubscribe()
-  }, [vendorId])
+  }, [storeId])
 
   // Reload when filters change
   useEffect(() => {
-    if (vendorId) {
-      loadProducts(vendorId, {
+    if (storeId) {
+      loadProducts(storeId, {
         categoryId: categoryFilter || undefined,
         status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchQuery || undefined,
       })
     }
-  }, [vendorId, categoryFilter, statusFilter, searchQuery])
+  }, [storeId, categoryFilter, statusFilter, searchQuery])
 
   // Handle deep-linked product ID from QR dashboard
   useEffect(() => {
@@ -129,7 +129,7 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
   }, [initialProductId, products, modalState.isOpen, onProductViewed])
 
   const handleDelete = async (productId: string) => {
-    if (!vendorId) return
+    if (!storeId) return
     const result = await deleteProduct(productId)
     if (result.success) {
       setDeleteConfirm(null)

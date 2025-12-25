@@ -32,7 +32,7 @@ export type ItemCondition = 'good' | 'damaged' | 'expired' | 'rejected'
 export interface PurchaseOrder {
   id: string
   po_number: string
-  vendor_id: string
+  store_id: string
   po_type: PurchaseOrderType
   status: PurchaseOrderStatus
   supplier_id: string | null
@@ -113,7 +113,7 @@ interface PurchaseOrdersState {
   subscription: RealtimeChannel | null
 
   // Actions
-  loadPurchaseOrders: (vendorId: string, params?: {
+  loadPurchaseOrders: (storeId: string, params?: {
     status?: PurchaseOrderStatus
     supplierId?: string
     locationId?: string
@@ -132,7 +132,7 @@ interface PurchaseOrdersState {
   deletePO: (poId: string) => Promise<{ success: boolean; error?: string }>
 
   // Real-time
-  subscribe: (vendorId: string) => void
+  subscribe: (storeId: string) => void
   unsubscribe: () => void
 
   // Helpers
@@ -164,7 +164,7 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
   statusFilter: 'all',
   subscription: null,
 
-  loadPurchaseOrders: async (vendorId, params = {}) => {
+  loadPurchaseOrders: async (storeId, params = {}) => {
     set({ isLoading: true, error: null })
 
     try {
@@ -176,7 +176,7 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
           locations (id, name),
           purchase_order_items (id, quantity, received_quantity)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('created_at', { ascending: false })
 
       if (params.status) {
@@ -422,7 +422,7 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
     }
   },
 
-  subscribe: (vendorId) => {
+  subscribe: (storeId) => {
     get().unsubscribe()
 
     const channel = supabase
@@ -433,7 +433,7 @@ export const usePurchaseOrdersStore = create<PurchaseOrdersState>((set, get) => 
           event: '*',
           schema: 'public',
           table: 'purchase_orders',
-          filter: `vendor_id=eq.${vendorId}`,
+          filter: `store_id=eq.${storeId}`,
         },
         async (payload) => {
           console.log('[PO Realtime] Change:', payload.eventType)

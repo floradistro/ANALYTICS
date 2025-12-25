@@ -28,7 +28,7 @@ const STATUS_CONFIG: Record<TransferStatus, { label: string; color: string; icon
 }
 
 export function TransfersTab() {
-  const vendorId = useAuthStore((s) => s.vendorId)
+  const storeId = useAuthStore((s) => s.storeId)
   const {
     transfers,
     locations,
@@ -47,22 +47,22 @@ export function TransfersTab() {
 
   // Load data on mount
   useEffect(() => {
-    if (vendorId) {
-      loadLocations(vendorId)
-      loadTransfers(vendorId)
-      subscribeToTransfers(vendorId)
+    if (storeId) {
+      loadLocations(storeId)
+      loadTransfers(storeId)
+      subscribeToTransfers(storeId)
     }
     return () => unsubscribe()
-  }, [vendorId])
+  }, [storeId])
 
   // Reload when filters change
   useEffect(() => {
-    if (vendorId) {
-      loadTransfers(vendorId, {
+    if (storeId) {
+      loadTransfers(storeId, {
         status: statusFilter === 'all' ? undefined : statusFilter,
       })
     }
-  }, [vendorId, statusFilter])
+  }, [storeId, statusFilter])
 
   // Filter by search
   const filteredTransfers = useMemo(() => {

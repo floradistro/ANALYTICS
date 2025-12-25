@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase'
 
 export interface Supplier {
   id: string
-  vendor_id: string
+  store_id: string
   external_name: string
   contact_name: string | null
   contact_email: string | null
@@ -29,8 +29,8 @@ interface SuppliersManagementState {
   isLoading: boolean
   error: string | null
 
-  loadSuppliers: (vendorId: string) => Promise<void>
-  createSupplier: (vendorId: string, supplierData: {
+  loadSuppliers: (storeId: string) => Promise<void>
+  createSupplier: (storeId: string, supplierData: {
     external_name: string
     contact_name?: string
     contact_email?: string
@@ -53,14 +53,14 @@ export const useSuppliersManagementStore = create<SuppliersManagementState>((set
   isLoading: false,
   error: null,
 
-  loadSuppliers: async (vendorId: string) => {
+  loadSuppliers: async (storeId: string) => {
     set({ isLoading: true, error: null })
 
     try {
       const { data, error } = await supabase
         .from('suppliers')
         .select('*')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('external_name')
 
       if (error) throw error
@@ -76,12 +76,12 @@ export const useSuppliersManagementStore = create<SuppliersManagementState>((set
     }
   },
 
-  createSupplier: async (vendorId: string, supplierData) => {
+  createSupplier: async (storeId: string, supplierData) => {
     try {
       const { data, error } = await supabase
         .from('suppliers')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           external_name: supplierData.external_name,
           contact_name: supplierData.contact_name || null,
           contact_email: supplierData.contact_email || null,

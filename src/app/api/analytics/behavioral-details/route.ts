@@ -8,14 +8,14 @@ const supabase = createClient(
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url)
-  const vendorId = url.searchParams.get('vendor_id')
+  const storeId = url.searchParams.get('store_id')
   const dataType = url.searchParams.get('type') // 'rage', 'scroll', 'heatmap', 'recording'
   const startDate = url.searchParams.get('start')
   const endDate = url.searchParams.get('end')
   const limit = parseInt(url.searchParams.get('limit') || '50')
 
-  if (!vendorId) {
-    return NextResponse.json({ error: 'vendor_id required' }, { status: 400 })
+  if (!storeId) {
+    return NextResponse.json({ error: 'store_id required' }, { status: 400 })
   }
 
   const start = startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('behavioral_data')
       .select('*')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .gte('collected_at', start)
       .lte('collected_at', end)
       .order('collected_at', { ascending: false })

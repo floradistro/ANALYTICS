@@ -101,12 +101,12 @@ interface CogsAnalyticsState {
   isLoadingTrends: boolean
   isLoadingPOs: boolean
 
-  fetchProductProfitability: (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
-  fetchDailySalesProfit: (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
-  fetchSupplierCostComparison: (vendorId: string, locationIds?: string[]) => Promise<void>
-  fetchInventoryValuation: (vendorId: string, locationIds?: string[]) => Promise<void>
-  fetchCostTrends: (vendorId: string, productId?: string, locationIds?: string[]) => Promise<void>
-  fetchPurchaseOrders: (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
+  fetchProductProfitability: (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
+  fetchDailySalesProfit: (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
+  fetchSupplierCostComparison: (storeId: string, locationIds?: string[]) => Promise<void>
+  fetchInventoryValuation: (storeId: string, locationIds?: string[]) => Promise<void>
+  fetchCostTrends: (storeId: string, productId?: string, locationIds?: string[]) => Promise<void>
+  fetchPurchaseOrders: (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => Promise<void>
 }
 
 export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
@@ -125,10 +125,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   isLoadingPOs: false,
 
   // ========== FETCH PRODUCT PROFITABILITY ==========
-  fetchProductProfitability: async (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
+  fetchProductProfitability: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingProducts: true })
     try {
-      console.log('🔄 Fetching product profitability...', { vendorId, startDate, endDate, locationIds })
+      console.log('🔄 Fetching product profitability...', { storeId, startDate, endDate, locationIds })
 
       // Step 1: Adjust date range to include full days
       let adjustedStartDate = startDate
@@ -177,7 +177,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
             orders!inner(created_at, payment_status, status)
           `, { count: 'exact' })
           // Note: variant_template_id and variant_name fields can be added here once they exist in the database
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('orders.payment_status', 'paid')
           .neq('orders.status', 'cancelled')
           .range(page * pageSize, (page + 1) * pageSize - 1)
@@ -371,10 +371,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   },
 
   // ========== FETCH DAILY SALES PROFIT ==========
-  fetchDailySalesProfit: async (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
+  fetchDailySalesProfit: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingDaily: true })
     try {
-      console.log('🔄 Fetching daily sales profit...', { vendorId, startDate, endDate, locationIds })
+      console.log('🔄 Fetching daily sales profit...', { storeId, startDate, endDate, locationIds })
 
       // Adjust startDate to beginning of day (00:00:00.000)
       let adjustedStartDate = startDate
@@ -407,7 +407,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         const { data, error, count } = await supabase
           .from('orders')
           .select('id, created_at, discount_amount, tax_amount, total_amount', { count: 'exact' })
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .eq('payment_status', 'paid')
           .neq('status', 'cancelled')
           .gte('created_at', adjustedStartDate?.toISOString() || '2020-01-01')
@@ -448,7 +448,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         let itemQuery = supabase
           .from('order_items')
           .select('order_id, product_id, quantity, cost_per_unit, profit_per_unit, line_subtotal, location_id', { count: 'exact' })
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .range(itemPage * itemPageSize, (itemPage + 1) * itemPageSize - 1)
 
         if (locationIds && locationIds.length > 0) {
@@ -554,10 +554,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   },
 
   // ========== FETCH SUPPLIER COST COMPARISON ==========
-  fetchSupplierCostComparison: async (vendorId: string, locationIds?: string[]) => {
+  fetchSupplierCostComparison: async (storeId: string, locationIds?: string[]) => {
     set({ isLoadingSuppliers: true })
     try {
-      console.log('🔄 Fetching supplier cost comparison...', { vendorId, locationIds })
+      console.log('🔄 Fetching supplier cost comparison...', { storeId, locationIds })
       const { data, error } = await supabase
         .from('purchase_order_items')
         .select(`
@@ -566,9 +566,9 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
           quantity,
           created_at,
           purchase_orders!inner(supplier_id, suppliers(external_name)),
-          products!inner(name, vendor_id)
+          products!inner(name, store_id)
         `)
-        .eq('products.vendor_id', vendorId)
+        .eq('products.store_id', storeId)
         .neq('purchase_orders.status', 'cancelled')
 
       if (error) throw error
@@ -635,10 +635,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   },
 
   // ========== FETCH INVENTORY VALUATION ==========
-  fetchInventoryValuation: async (vendorId: string, locationIds?: string[]) => {
+  fetchInventoryValuation: async (storeId: string, locationIds?: string[]) => {
     set({ isLoadingInventory: true })
     try {
-      console.log('🔄 Fetching inventory valuation...', { vendorId, locationIds })
+      console.log('🔄 Fetching inventory valuation...', { storeId, locationIds })
       let query = supabase
         .from('inventory')
         .select(`
@@ -649,10 +649,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
           average_cost,
           nrv_per_unit,
           lcm_value,
-          products!inner(name, vendor_id, primary_category_id, categories:primary_category_id(name)),
+          products!inner(name, store_id, primary_category_id, categories:primary_category_id(name)),
           locations(name)
         `)
-        .eq('products.vendor_id', vendorId)
+        .eq('products.store_id', storeId)
         .gt('quantity', 0)
 
       if (locationIds && locationIds.length > 0) {
@@ -696,10 +696,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   },
 
   // ========== FETCH COST TRENDS ==========
-  fetchCostTrends: async (vendorId: string, productId?: string, locationIds?: string[]) => {
+  fetchCostTrends: async (storeId: string, productId?: string, locationIds?: string[]) => {
     set({ isLoadingTrends: true })
     try {
-      console.log('🔄 Fetching cost trends...', { vendorId, productId, locationIds })
+      console.log('🔄 Fetching cost trends...', { storeId, productId, locationIds })
       let query = supabase
         .from('product_cost_history')
         .select(`
@@ -709,9 +709,9 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
           change_reason,
           changed_by,
           created_at,
-          products!inner(name, vendor_id)
+          products!inner(name, store_id)
         `)
-        .eq('products.vendor_id', vendorId)
+        .eq('products.store_id', storeId)
         .order('created_at', { ascending: false })
         .limit(100)
 
@@ -753,10 +753,10 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   },
 
   // ========== FETCH PURCHASE ORDERS ==========
-  fetchPurchaseOrders: async (vendorId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
+  fetchPurchaseOrders: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingPOs: true })
     try {
-      console.log('🔄 Fetching purchase orders...', { vendorId, startDate, endDate, locationIds })
+      console.log('🔄 Fetching purchase orders...', { storeId, startDate, endDate, locationIds })
       let query = supabase
         .from('purchase_orders')
         .select(`
@@ -773,7 +773,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
           expected_date,
           suppliers(external_name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
 
       if (startDate) {
         query = query.gte('created_at', startDate.toISOString())

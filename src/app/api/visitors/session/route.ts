@@ -10,9 +10,9 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const sessionId = searchParams.get('sessionId')
-    const vendorId = searchParams.get('vendorId')
+    const storeId = searchParams.get('vendorId')
 
-    if (!sessionId || !vendorId) {
+    if (!sessionId || !storeId) {
       return NextResponse.json({ error: 'Missing sessionId or vendorId' }, { status: 400 })
     }
 
@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     const { data: pageViews } = await supabase
       .from('page_views')
       .select('id, page_url, page_title, created_at')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
       .limit(50)
@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     const { data: events } = await supabase
       .from('analytics_events')
       .select('id, event_name, event_properties, revenue, created_at')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
       .limit(50)

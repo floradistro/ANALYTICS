@@ -59,13 +59,13 @@ export async function GET(request: NextRequest) {
   const supabase = createServerClient()
   const { searchParams } = new URL(request.url)
 
-  const vendorId = searchParams.get('vendor_id')
+  const storeId = searchParams.get('store_id')
   const qrCodeId = searchParams.get('qr_code_id')
   const type = searchParams.get('type')
   const days = parseInt(searchParams.get('days') || '30')
 
-  if (!vendorId) {
-    return NextResponse.json({ error: 'vendor_id is required' }, { status: 400 })
+  if (!storeId) {
+    return NextResponse.json({ error: 'store_id is required' }, { status: 400 })
   }
 
   const startDate = new Date()
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
     let qrQuery = supabase
       .from('qr_codes')
       .select('id, code, type, name, total_scans, unique_scans, is_active, created_at, last_scanned_at, landing_page_title, landing_page_description, landing_page_image_url, landing_page_cta_text, landing_page_cta_url, landing_page_theme')
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
 
     if (qrCodeId) {
       qrQuery = qrQuery.eq('id', qrCodeId)
@@ -95,8 +95,8 @@ export async function GET(request: NextRequest) {
     // Get scan analytics for the period
     let scansQuery = supabase
       .from('qr_scans')
-      .select('id, qr_code_id, vendor_id, visitor_id, city, region, country, device_type, browser_name, os_name, is_first_scan, scanned_at, latitude, longitude')
-      .eq('vendor_id', vendorId)
+      .select('id, qr_code_id, store_id, visitor_id, city, region, country, device_type, browser_name, os_name, is_first_scan, scanned_at, latitude, longitude')
+      .eq('store_id', storeId)
       .gte('scanned_at', startDate.toISOString())
       .order('scanned_at', { ascending: false })
 

@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       visitor_id,
       session_id,
       fingerprint_id,
@@ -31,15 +31,15 @@ export async function POST(request: NextRequest) {
       page_url,
     } = body
 
-    if (!vendor_id || !fingerprint_id) {
+    if (!store_id || !fingerprint_id) {
       return NextResponse.json(
-        { error: 'vendor_id and fingerprint_id required' },
+        { error: 'store_id and fingerprint_id required' },
         { status: 400, headers: corsHeaders }
       )
     }
 
     console.log('[Fingerprint API] Received fingerprint:', {
-      vendor_id,
+      store_id,
       visitor_id,
       session_id,
       fingerprint_id,
@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
           is_bot: false,           // If they executed our fingerprint JS, not a bot
           bot_score: 0,
         })
-        .eq('vendor_id', vendor_id)
+        .eq('store_id', store_id)
         .or(`visitor_id.eq.${visitor_id},session_id.eq.${session_id}`)
 
       if (visitorUpdateError) {
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
       .from('device_fingerprints')
       .select('fingerprint_id, linked_visitor_ids, total_visits')
       .eq('fingerprint_id', fingerprint_id)
-      .eq('vendor_id', vendor_id)
+      .eq('store_id', store_id)
       .single()
 
     if (existing) {
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq('fingerprint_id', fingerprint_id)
-        .eq('vendor_id', vendor_id)
+        .eq('store_id', store_id)
 
       if (updateError) {
         console.error('[Fingerprint API] Update error:', updateError)
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     const { error: insertError } = await supabase
       .from('device_fingerprints')
       .insert({
-        vendor_id,
+        store_id,
         fingerprint_id,
         confidence_score: fingerprint_confidence || 0,
         canvas_fingerprint: fingerprint_components?.canvas?.substring(0, 255) || null,

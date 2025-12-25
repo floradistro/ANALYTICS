@@ -7,12 +7,12 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
 
   const qrCodeId = searchParams.get('qr_code_id')
-  const vendorId = searchParams.get('vendor_id')
+  const storeId = searchParams.get('store_id')
   const limit = parseInt(searchParams.get('limit') || '50')
 
-  if (!qrCodeId || !vendorId) {
+  if (!qrCodeId || !storeId) {
     return NextResponse.json(
-      { error: 'qr_code_id and vendor_id are required' },
+      { error: 'qr_code_id and store_id are required' },
       { status: 400 }
     )
   }
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
       .from('qr_scans')
       .select('id, qr_code_id, scanned_at, city, region, country, device_type, browser_name, os_name, is_first_scan, latitude, longitude')
       .eq('qr_code_id', qrCodeId)
-      .eq('vendor_id', vendorId)
+      .eq('store_id', storeId)
       .order('scanned_at', { ascending: false })
       .limit(limit)
 

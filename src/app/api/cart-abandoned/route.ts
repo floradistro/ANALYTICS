@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      vendor_id,
+      store_id,
       visitor_id,
       fingerprint_id,
       cartItems,
@@ -34,15 +34,15 @@ export async function POST(request: NextRequest) {
       checkoutUrl,
     } = body
 
-    if (!vendor_id || !visitor_id || !cartItems || !cartTotal) {
+    if (!store_id || !visitor_id || !cartItems || !cartTotal) {
       return NextResponse.json(
-        { error: 'vendor_id, visitor_id, cartItems, and cartTotal required' },
+        { error: 'store_id, visitor_id, cartItems, and cartTotal required' },
         { status: 400, headers: corsHeaders }
       )
     }
 
     console.log('[Cart Abandoned API] Tracking abandoned cart:', {
-      vendor_id,
+      store_id,
       visitor_id,
       fingerprint_id,
       cartTotal,
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       .from('abandoned_carts')
       .select('id, recovered')
       .eq('visitor_id', visitor_id)
-      .eq('vendor_id', vendor_id)
+      .eq('store_id', store_id)
       .eq('recovered', false)
       .order('abandoned_at', { ascending: false })
       .limit(1)
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
     const { data, error: insertError } = await supabase
       .from('abandoned_carts')
       .insert({
-        vendor_id,
+        store_id,
         visitor_id,
         fingerprint_id: fingerprint_id || null,
         cart_items: cartItems,
@@ -142,13 +142,13 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url)
-    const vendor_id = url.searchParams.get('vendor_id')
+    const store_id = url.searchParams.get('store_id')
     const email = url.searchParams.get('email')
     const fingerprint_id = url.searchParams.get('fingerprint_id')
 
-    if (!vendor_id) {
+    if (!store_id) {
       return NextResponse.json(
-        { error: 'vendor_id required' },
+        { error: 'store_id required' },
         { status: 400, headers: corsHeaders }
       )
     }
@@ -156,7 +156,7 @@ export async function GET(request: NextRequest) {
     let query = supabase
       .from('abandoned_carts')
       .select('*')
-      .eq('vendor_id', vendor_id)
+      .eq('store_id', store_id)
       .eq('recovered', false)
       .order('abandoned_at', { ascending: false })
 

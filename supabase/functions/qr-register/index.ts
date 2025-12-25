@@ -22,7 +22,7 @@ serve(async (req) => {
     const body = await req.json()
 
     // Accept both snake_case and camelCase
-    const vendor_id = body.vendor_id || body.vendorId
+    const store_id = body.store_id || body.storeId
     const code = body.code
     const name = body.name
     const type = body.type
@@ -48,9 +48,9 @@ serve(async (req) => {
     const quantity_index = body.quantity_index || body.quantityIndex
     const location_name = body.location_name || body.locationName
 
-    if (!vendor_id || !code || !name) {
+    if (!store_id || !code || !name) {
       return new Response(
-        JSON.stringify({ success: false, error: 'vendor_id, code, and name are required' }),
+        JSON.stringify({ success: false, error: 'store_id, code, and name are required' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
@@ -91,7 +91,7 @@ serve(async (req) => {
 
     // Build QR code record
     const qrData: Record<string, unknown> = {
-      vendor_id,
+      store_id,
       code,
       name,
       type: qrType,

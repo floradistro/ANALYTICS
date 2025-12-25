@@ -17,7 +17,7 @@ export type ProcessorType = 'dejavoo' | 'stripe' | 'square' | 'clover' | 'author
 
 export interface PaymentProcessor {
   id: string
-  vendor_id: string
+  store_id: string
   location_id: string | null
   processor_type: ProcessorType
   processor_name: string
@@ -42,7 +42,7 @@ export interface PaymentProcessor {
 
 export interface Register {
   id: string
-  vendor_id: string
+  store_id: string
   location_id: string
   register_name: string
   register_number: string
@@ -92,13 +92,13 @@ interface RegistersManagementState {
   isLoading: boolean
   error: string | null
 
-  loadRegisters: (vendorId: string) => Promise<void>
-  createRegister: (vendorId: string, data: RegisterFormData) => Promise<{ success: boolean; error?: string }>
+  loadRegisters: (storeId: string) => Promise<void>
+  createRegister: (storeId: string, data: RegisterFormData) => Promise<{ success: boolean; error?: string }>
   updateRegister: (registerId: string, data: Partial<RegisterFormData>) => Promise<{ success: boolean; error?: string }>
   deleteRegister: (registerId: string) => Promise<{ success: boolean; error?: string }>
   linkProcessor: (registerId: string, processorId: string) => Promise<{ success: boolean; error?: string }>
   unlinkProcessor: (registerId: string) => Promise<{ success: boolean; error?: string }>
-  createProcessor: (vendorId: string, locationId: string, data: ProcessorFormData) => Promise<{ success: boolean; error?: string }>
+  createProcessor: (storeId: string, locationId: string, data: ProcessorFormData) => Promise<{ success: boolean; error?: string }>
   reset: () => void
 }
 
@@ -112,7 +112,7 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
   isLoading: false,
   error: null,
 
-  loadRegisters: async (vendorId: string) => {
+  loadRegisters: async (storeId: string) => {
     set({ isLoading: true, error: null })
 
     try {
@@ -123,7 +123,7 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
           *,
           locations!pos_registers_location_id_fkey (id, name)
         `)
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .order('location_id')
         .order('register_number')
 
@@ -140,7 +140,7 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
         const { data: processorsData, error: processorsError } = await supabase
           .from('payment_processors')
           .select('*')
-          .eq('vendor_id', vendorId)
+          .eq('store_id', storeId)
           .in('location_id', locationIds)
           .eq('processor_type', 'dejavoo')
 
@@ -184,12 +184,12 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
     }
   },
 
-  createRegister: async (vendorId: string, data: RegisterFormData) => {
+  createRegister: async (storeId: string, data: RegisterFormData) => {
     try {
       const { data: newRegister, error } = await supabase
         .from('pos_registers')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           location_id: data.location_id,
           register_name: data.register_name,
           register_number: data.register_number,
@@ -355,12 +355,12 @@ export const useRegistersManagementStore = create<RegistersManagementState>((set
     }
   },
 
-  createProcessor: async (vendorId: string, locationId: string, data: ProcessorFormData) => {
+  createProcessor: async (storeId: string, locationId: string, data: ProcessorFormData) => {
     try {
       const { data: newProcessor, error } = await supabase
         .from('payment_processors')
         .insert({
-          vendor_id: vendorId,
+          store_id: storeId,
           location_id: locationId,
           processor_type: data.processor_type,
           processor_name: data.processor_name,

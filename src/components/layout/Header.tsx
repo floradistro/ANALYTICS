@@ -17,7 +17,7 @@ const DATE_PRESETS = [
 ]
 
 export function Header() {
-  const { user, vendor, vendorId } = useAuthStore()
+  const { user, store, storeId } = useAuthStore()
   const { dateRange, setDateRange, locations, isLoadingLocations, fetchLocations, filters, setLocationIds } = useDashboardStore()
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [showLocationPicker, setShowLocationPicker] = useState(false)
@@ -26,10 +26,10 @@ export function Header() {
 
   // Fetch locations on mount
   useEffect(() => {
-    if (vendorId && locations.length === 0 && !isLoadingLocations) {
-      fetchLocations(vendorId)
+    if (storeId && locations.length === 0 && !isLoadingLocations) {
+      fetchLocations(storeId)
     }
-  }, [vendorId, locations.length, isLoadingLocations, fetchLocations])
+  }, [storeId, locations.length, isLoadingLocations, fetchLocations])
 
   const applyPreset = (preset: string) => {
     setActivePreset(preset)
@@ -249,10 +249,10 @@ export function Header() {
 
           <div className="flex items-center gap-2 lg:gap-3 pl-2 lg:pl-4 border-l border-zinc-800">
             <div className="w-7 h-7 lg:w-8 lg:h-8 bg-zinc-900 border border-zinc-800 flex items-center justify-center overflow-hidden flex-shrink-0 rounded-sm">
-              {vendor?.logo_url ? (
+              {store?.logo_url ? (
                 <img
-                  src={vendor.logo_url}
-                  alt={vendor.store_name || 'Logo'}
+                  src={store.logo_url}
+                  alt={store.store_name || 'Logo'}
                   className="w-full h-full object-contain"
                 />
               ) : (

@@ -133,7 +133,7 @@ const formatPaymentMethod = (method: string): string => {
 }
 
 export default function FinancialReportsPage() {
-  const { vendorId, vendor } = useAuthStore()
+  const { storeId, store } = useAuthStore()
   const { dateRange, filters } = useDashboardStore()
   const [exportingPDF, setExportingPDF] = useState(false)
 
@@ -307,14 +307,14 @@ export default function FinancialReportsPage() {
   const [locationMap, setLocationMap] = useState<Map<string, { name: string; state: string; configuredRate: number }>>(new Map())
 
   const fetchLocations = useCallback(async () => {
-    if (!vendorId) return
+    if (!storeId) return
     setLocationsLoading(true)
 
     try {
       const { data: locations } = await supabase
         .from('locations')
         .select('id, name, state, settings')
-        .eq('vendor_id', vendorId)
+        .eq('store_id', storeId)
         .eq('is_active', true)
 
       const newMap = new Map<string, { name: string; state: string; configuredRate: number }>()
@@ -333,7 +333,7 @@ export default function FinancialReportsPage() {
     } finally {
       setLocationsLoading(false)
     }
-  }, [vendorId])
+  }, [storeId])
 
   // Tax by location/state/processor - computed from store data + location metadata
   const taxReports = useMemo(() => {
@@ -448,11 +448,11 @@ export default function FinancialReportsPage() {
 
   // Fetch orders from store and locations on mount/date change
   useEffect(() => {
-    if (vendorId) {
-      fetchOrders(vendorId)
+    if (storeId) {
+      fetchOrders(storeId)
       fetchLocations()
     }
-  }, [vendorId, dateRange, fetchOrders, fetchLocations])
+  }, [storeId, dateRange, fetchOrders, fetchLocations])
 
   // Update state from computed tax reports
   useEffect(() => {
@@ -487,7 +487,7 @@ export default function FinancialReportsPage() {
   }
 
   const exportPDF = async () => {
-    if (!vendor || monthlyReports.length === 0) return
+    if (!store || monthlyReports.length === 0) return
 
     setExportingPDF(true)
     try {
@@ -496,8 +496,8 @@ export default function FinancialReportsPage() {
 
       await exportFinancialReportPDF(
         {
-          storeName: vendor.store_name || 'Store',
-          logoUrl: vendor.logo_url,
+          storeName: store.store_name || 'Store',
+          logoUrl: store.logo_url,
         },
         { start, end },
         monthlyReports,

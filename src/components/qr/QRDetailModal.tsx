@@ -68,10 +68,10 @@ interface QRDetailModalProps {
   isOpen: boolean
   onClose: () => void
   qrCode: QRCode | null
-  vendorId: string
+  storeId: string
 }
 
-export function QRDetailModal({ isOpen, onClose, qrCode, vendorId }: QRDetailModalProps) {
+export function QRDetailModal({ isOpen, onClose, qrCode, storeId }: QRDetailModalProps) {
   const router = useRouter()
   const [scans, setScans] = useState<QRScan[]>([])
   const [loading, setLoading] = useState(false)
@@ -88,7 +88,7 @@ export function QRDetailModal({ isOpen, onClose, qrCode, vendorId }: QRDetailMod
     const fetchScans = async () => {
       setLoading(true)
       try {
-        const res = await fetch(`/api/qr/scans?qr_code_id=${qrCode.id}&vendor_id=${vendorId}&limit=100`)
+        const res = await fetch(`/api/qr/scans?qr_code_id=${qrCode.id}&store_id=${storeId}&limit=100`)
         const data = await res.json()
         if (data.success) {
           setScans(data.scans || [])
@@ -103,7 +103,7 @@ export function QRDetailModal({ isOpen, onClose, qrCode, vendorId }: QRDetailMod
     }
 
     fetchScans()
-  }, [isOpen, qrCode, vendorId])
+  }, [isOpen, qrCode, storeId])
 
   if (!isOpen || !qrCode) return null
 
