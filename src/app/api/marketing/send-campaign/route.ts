@@ -36,9 +36,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Campaign already sent' }, { status: 400 })
     }
 
-    // Get vendor email settings
+    // Get store email settings
     const { data: emailSettings } = await supabase
-      .from('vendor_email_settings')
+      .from('store_email_settings')
       .select('from_name, from_email')
       .eq('store_id', campaign.store_id)
       .single()
