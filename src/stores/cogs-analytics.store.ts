@@ -149,14 +149,55 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         locations: locationIds?.length || 'all'
       })
 
-      // Step 2: Fetch ALL order items with pagination (Supabase has 1000 row hard limit per query)
-      console.log('📊 Fetching order items with pagination...')
-      const allOrderItems: any[] = []
-      const pageSize = 1000
-      let page = 0
-      let hasMore = true
+      // Step 2: First fetch valid order IDs to avoid complex join pagination issues
+      console.log('📊 Fetching valid order IDs...')
+      const allOrderIds: string[] = []
+      const orderPageSize = 1000
+      let orderPage = 0
+      let hasMoreOrders = true
 
-      while (hasMore) {
+      while (hasMoreOrders) {
+        let orderQuery = supabase
+          .from('orders')
+          .select('id', { count: 'exact' })
+          .eq('store_id', storeId)
+          .eq('payment_status', 'paid')
+          .neq('status', 'cancelled')
+          .range(orderPage * orderPageSize, (orderPage + 1) * orderPageSize - 1)
+
+        if (adjustedStartDate) {
+          orderQuery = orderQuery.gte('created_at', adjustedStartDate.toISOString())
+        }
+        if (adjustedEndDate) {
+          orderQuery = orderQuery.lte('created_at', adjustedEndDate.toISOString())
+        }
+
+        const { data: orderData, error: orderError } = await orderQuery
+
+        if (orderError) {
+          console.error('❌ Order query error:', orderError)
+          throw orderError
+        }
+
+        if (orderData && orderData.length > 0) {
+          allOrderIds.push(...orderData.map(o => o.id))
+          hasMoreOrders = orderData.length === orderPageSize
+          orderPage++
+        } else {
+          hasMoreOrders = false
+        }
+      }
+
+      console.log('✅ Valid orders found:', allOrderIds.length)
+
+      // Step 3: Fetch order items in batches by order IDs (avoids complex join pagination)
+      console.log('📊 Fetching order items by order IDs...')
+      const allOrderItems: any[] = []
+      const batchSize = 500 // Process orders in batches to avoid 'in' clause limits
+
+      for (let i = 0; i < allOrderIds.length; i += batchSize) {
+        const batchOrderIds = allOrderIds.slice(i, i + batchSize)
+
         let query = supabase
           .from('order_items')
           .select(`
@@ -173,26 +214,15 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
               name,
               pricing_template_id,
               categories!products_primary_category_id_fkey(name)
-            ),
-            orders!inner(created_at, payment_status, status)
-          `, { count: 'exact' })
-          // Note: variant_template_id and variant_name fields can be added here once they exist in the database
-          .eq('store_id', storeId)
-          .eq('orders.payment_status', 'paid')
-          .neq('orders.status', 'cancelled')
-          .range(page * pageSize, (page + 1) * pageSize - 1)
+            )
+          `)
+          .in('order_id', batchOrderIds)
 
-        if (adjustedStartDate) {
-          query = query.gte('orders.created_at', adjustedStartDate.toISOString())
-        }
-        if (adjustedEndDate) {
-          query = query.lte('orders.created_at', adjustedEndDate.toISOString())
-        }
         if (locationIds && locationIds.length > 0) {
           query = query.in('location_id', locationIds)
         }
 
-        const { data, error, count } = await query
+        const { data, error } = await query
 
         if (error) {
           console.error('❌ Query error details:', {
@@ -207,11 +237,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
         if (data && data.length > 0) {
           allOrderItems.push(...data)
-          console.log(`📄 Page ${page + 1}: fetched ${data.length} items (total so far: ${allOrderItems.length} of ${count})`)
-          hasMore = data.length === pageSize
-          page++
-        } else {
-          hasMore = false
+          console.log(`📄 Batch ${Math.floor(i / batchSize) + 1}: fetched ${data.length} items (total so far: ${allOrderItems.length})`)
         }
       }
 
@@ -436,43 +462,39 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
       // Create lookup map for orders
       const orderMap = new Map(orders.map(o => [o.id, o]))
+      const orderIds = orders.map(o => o.id)
 
-      // Get ALL order items for this vendor with pagination
-      console.log('📦 Fetching order items with pagination...')
+      // Get order items in batches by order IDs (more efficient than pagination with date filter)
+      console.log('📦 Fetching order items by order IDs...')
       const allItems: any[] = []
-      const itemPageSize = 1000
-      let itemPage = 0
-      let hasMoreItems = true
+      const batchSize = 500 // Process orders in batches to avoid 'in' clause limits
 
-      while (hasMoreItems) {
+      for (let i = 0; i < orderIds.length; i += batchSize) {
+        const batchOrderIds = orderIds.slice(i, i + batchSize)
+
         let itemQuery = supabase
           .from('order_items')
-          .select('order_id, product_id, quantity, cost_per_unit, profit_per_unit, line_subtotal, location_id', { count: 'exact' })
-          .eq('store_id', storeId)
-          .range(itemPage * itemPageSize, (itemPage + 1) * itemPageSize - 1)
+          .select('order_id, product_id, quantity, cost_per_unit, profit_per_unit, line_subtotal, location_id')
+          .in('order_id', batchOrderIds)
 
         if (locationIds && locationIds.length > 0) {
           itemQuery = itemQuery.in('location_id', locationIds)
         }
 
-        const { data, error, count } = await itemQuery
+        const { data, error } = await itemQuery
 
         if (error) throw error
 
         if (data && data.length > 0) {
           allItems.push(...data)
-          console.log(`📄 Items page ${itemPage + 1}: ${data.length} items (total: ${allItems.length} of ${count})`)
-          hasMoreItems = data.length === itemPageSize
-          itemPage++
-        } else {
-          hasMoreItems = false
+          console.log(`📄 Batch ${Math.floor(i / batchSize) + 1}: ${data.length} items (total: ${allItems.length})`)
         }
       }
 
       console.log('✅ All items fetched:', allItems.length, 'total')
 
-      // Filter items to only those in our date-filtered orders
-      const items = allItems.filter(item => orderMap.has(item.order_id))
+      // All items are already from valid orders, no filter needed
+      const items = allItems
 
       console.log('📦 Order items after date filter:', items.length, 'matched from', orders.length, 'orders')
 

@@ -597,7 +597,7 @@ export default function OperationsPage() {
                                   </>
                                 )}
                                 <span>•</span>
-                                <span>{format(new Date(audit.last_adjustment), 'h:mm a')}</span>
+                                <span>{audit.last_adjustment ? format(new Date(audit.last_adjustment), 'h:mm a') : '--'}</span>
                               </div>
                             </div>
                             <div className={`text-sm font-mono tabular-nums ${
@@ -717,12 +717,20 @@ export default function OperationsPage() {
                 // Group audits by date
                 Object.entries(
                   audits.reduce((acc, audit) => {
-                    if (!acc[audit.audit_date]) acc[audit.audit_date] = []
-                    acc[audit.audit_date].push(audit)
+                    const auditDate = audit.audit_date || 'unknown'
+                    if (!acc[auditDate]) acc[auditDate] = []
+                    acc[auditDate].push(audit)
                     return acc
                   }, {} as Record<string, DailyAuditSummary[]>)
                 )
-                .sort(([dateA], [dateB]) => new Date(dateB).getTime() - new Date(dateA).getTime())
+                .filter(([date]) => date !== 'unknown')
+                .sort(([dateA], [dateB]) => {
+                  try {
+                    return new Date(dateB).getTime() - new Date(dateA).getTime()
+                  } catch {
+                    return 0
+                  }
+                })
                 .map(([date, dayAudits]) => {
                   const dayTotal = dayAudits.reduce((sum, a) => sum + Number(a.net_change || 0), 0)
                   const dayAdjustments = dayAudits.reduce((sum, a) => sum + (a.adjustment_count || 0), 0)
@@ -733,6 +741,13 @@ export default function OperationsPage() {
                     ? auditsWithCompletion.reduce((sum, a) => sum + (a.completion_rate || 0), 0) / auditsWithCompletion.length
                     : 0
 
+                  let formattedDate = date
+                  try {
+                    formattedDate = format(new Date(date), 'EEEE, MMMM d, yyyy')
+                  } catch {
+                    // Keep original date string if parsing fails
+                  }
+
                   return (
                     <div key={date} className="bg-zinc-950 border border-zinc-800">
                       {/* Day Header */}
@@ -741,7 +756,7 @@ export default function OperationsPage() {
                           <div className="flex items-center gap-4">
                             <Calendar className="w-4 h-4 text-zinc-600" />
                             <h3 className="text-sm font-semibold text-white">
-                              {format(new Date(date), 'EEEE, MMMM d, yyyy')}
+                              {formattedDate}
                             </h3>
                             <span className="text-xs text-zinc-600">
                               {dayAudits.length} location{dayAudits.length !== 1 ? 's' : ''}
@@ -789,7 +804,9 @@ export default function OperationsPage() {
                                   <div className="flex items-center gap-6 text-xs text-zinc-500 ml-7">
                                     <div className="flex items-center gap-1.5">
                                       <Clock className="w-3 h-3" />
-                                      {format(new Date(audit.first_adjustment), 'h:mm a')} - {format(new Date(audit.last_adjustment), 'h:mm a')}
+                                      {audit.first_adjustment && audit.last_adjustment
+                                        ? `${format(new Date(audit.first_adjustment), 'h:mm a')} - ${format(new Date(audit.last_adjustment), 'h:mm a')}`
+                                        : '--'}
                                     </div>
                                     <span>{audit.adjustment_count} adjustments</span>
                                     {audit.completion_rate !== undefined && (
@@ -1556,18 +1573,30 @@ export default function OperationsPage() {
                 </div>
                 <div className="p-6">
                   <div className="space-y-3">
-                    {Array.from(new Set(audits.map(a => a.audit_date)))
-                      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+                    {Array.from(new Set(audits.map(a => a.audit_date).filter(Boolean)))
+                      .sort((a, b) => {
+                        try {
+                          return new Date(b).getTime() - new Date(a).getTime()
+                        } catch {
+                          return 0
+                        }
+                      })
                       .slice(0, 7)
                       .map(date => {
                         const auditsOnDate = audits.filter(a => a.audit_date === date)
                         const percentage = totalLocations > 0 ? (auditsOnDate.length / totalLocations) * 100 : 0
+                        let formattedDate = date
+                        try {
+                          formattedDate = format(new Date(date), 'MMM d, yyyy')
+                        } catch {
+                          formattedDate = date
+                        }
 
                         return (
                           <div key={date}>
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-xs text-zinc-500">
-                                {format(new Date(date), 'MMM d, yyyy')}
+                                {formattedDate}
                               </span>
                               <span className="text-xs text-zinc-400 tabular-nums">
                                 {auditsOnDate.length}/{totalLocations} ({Math.round(percentage)}%)
@@ -1594,10 +1623,15 @@ export default function OperationsPage() {
                   <div className="space-y-3">
                     {Array.from({ length: 7 }, (_, i) => {
                       const date = subDays(new Date(), i)
-                      const reconciliationsOnDate = safeTransactions.filter(t =>
-                        isToday(new Date(t.created_at)) === isToday(date) &&
-                        format(new Date(t.created_at), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd')
-                      )
+                      const dateStr = format(date, 'yyyy-MM-dd')
+                      const reconciliationsOnDate = safeTransactions.filter(t => {
+                        if (!t.created_at) return false
+                        try {
+                          return format(new Date(t.created_at), 'yyyy-MM-dd') === dateStr
+                        } catch {
+                          return false
+                        }
+                      })
                       const uniqueLocations = new Set(reconciliationsOnDate.map(t => t.location_id))
                       const percentage = totalLocations > 0 ? (uniqueLocations.size / totalLocations) * 100 : 0
 
@@ -1637,7 +1671,7 @@ export default function OperationsPage() {
               <div>
                 <h2 className="text-lg font-semibold text-white">Audit Details</h2>
                 <p className="text-sm text-zinc-500 mt-1">
-                  {selectedAudit.location?.name} • {format(new Date(selectedAudit.audit_date), 'MMM d, yyyy')}
+                  {selectedAudit.location?.name} • {selectedAudit.audit_date ? (() => { try { return format(new Date(selectedAudit.audit_date), 'MMM d, yyyy') } catch { return selectedAudit.audit_date } })() : '--'}
                 </p>
               </div>
               <button
