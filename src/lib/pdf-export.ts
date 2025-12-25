@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { format } from 'date-fns'
 
-interface VendorInfo {
+interface StoreInfo {
   storeName: string
   logoUrl?: string | null
 }
@@ -28,7 +28,7 @@ interface PDFReportConfig {
   title: string
   subtitle?: string
   dateRange?: { start: Date; end: Date }
-  vendor: VendorInfo
+  store: StoreInfo
   sections: ReportSection[]
   generatedAt?: Date
   footer?: string
@@ -84,7 +84,7 @@ const addPageFooter = (
   doc: jsPDF,
   pageNum: number,
   totalPages: number,
-  vendorName: string,
+  storeName: string,
   pageWidth: number,
   pageHeight: number,
   margin: number
@@ -96,11 +96,11 @@ const addPageFooter = (
   doc.setLineWidth(0.3)
   doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5)
 
-  // Vendor name on left
+  // Store name on left
   doc.setFontSize(8)
   doc.setTextColor(...COLORS.lightGray)
   doc.setFont('helvetica', 'normal')
-  doc.text(vendorName, margin, footerY)
+  doc.text(storeName, margin, footerY)
 
   // Page number on right
   const pageText = `${pageNum} of ${totalPages}`
@@ -131,9 +131,9 @@ export async function generatePDFReport(config: PDFReportConfig): Promise<void> 
   let logoHeight = maxLogoHeight
   let hasLogo = false
 
-  if (config.vendor.logoUrl) {
+  if (config.store.logoUrl) {
     try {
-      const response = await fetch(config.vendor.logoUrl)
+      const response = await fetch(config.store.logoUrl)
       const blob = await response.blob()
       const base64 = await new Promise<string>((resolve) => {
         const reader = new FileReader()
@@ -168,7 +168,7 @@ export async function generatePDFReport(config: PDFReportConfig): Promise<void> 
     doc.setFontSize(16)
     doc.setTextColor(...COLORS.black)
     doc.setFont('helvetica', 'bold')
-    doc.text(config.vendor.storeName, margin, yPos + 8)
+    doc.text(config.store.storeName, margin, yPos + 8)
     logoHeight = 10
   }
 
@@ -359,7 +359,7 @@ export async function generatePDFReport(config: PDFReportConfig): Promise<void> 
   const totalPages = doc.internal.pages.length - 1
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
-    addPageFooter(doc, i, totalPages, config.vendor.storeName, pageWidth, pageHeight, margin)
+    addPageFooter(doc, i, totalPages, config.store.storeName, pageWidth, pageHeight, margin)
   }
 
   // ============ SAVE ============
@@ -372,7 +372,7 @@ export async function generatePDFReport(config: PDFReportConfig): Promise<void> 
 export async function exportTableAsPDF(
   title: string,
   data: Record<string, any>[],
-  vendor: VendorInfo,
+  store: StoreInfo,
   options?: {
     subtitle?: string
     dateRange?: { start: Date; end: Date }
@@ -415,7 +415,7 @@ export async function exportTableAsPDF(
   await generatePDFReport({
     title,
     subtitle: options?.subtitle,
-    vendor,
+    store,
     dateRange: options?.dateRange,
     sections: [
       {
@@ -430,7 +430,7 @@ export async function exportTableAsPDF(
 
 // Financial report specific export
 export async function exportFinancialReportPDF(
-  vendor: VendorInfo,
+  store: StoreInfo,
   dateRange: { start: Date; end: Date },
   monthlyData: Array<{
     month: string
@@ -452,7 +452,7 @@ export async function exportFinancialReportPDF(
   await generatePDFReport({
     title: 'Financial Report',
     subtitle: 'Revenue, Tax & Discount Summary',
-    vendor,
+    store,
     dateRange,
     sections: [
       // Executive Summary

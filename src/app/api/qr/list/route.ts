@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@/lib/supabase'
 
-// GET - Fetch all QR codes for a vendor with full data
+// GET - Fetch all QR codes for a store with full data
 export async function GET(request: NextRequest) {
   const supabase = createServerClient()
   const { searchParams } = new URL(request.url)
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     // Fetch staff names from users table
     // staff_id in qr_codes is the Supabase auth.users ID, stored in users.auth_user_id
-    let staffMap: Record<string, string> = {}
+    const staffMap: Record<string, string> = {}
     if (staffIds.length > 0) {
       const { data: staffData } = await supabase
         .from('users')
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch customer names from customers table
-    let customerMap: Record<string, string> = {}
+    const customerMap: Record<string, string> = {}
     if (customerIds.length > 0) {
       const { data: customerData } = await supabase
         .from('customers')

@@ -261,7 +261,7 @@ export function Header() {
             </div>
             <div className="hidden md:block min-w-0">
               <p className="text-xs lg:text-sm font-light text-white truncate max-w-[120px] lg:max-w-none">{user?.email}</p>
-              <p className="text-[10px] lg:text-xs text-zinc-500 tracking-wider uppercase">Vendor Admin</p>
+              <p className="text-[10px] lg:text-xs text-zinc-500 tracking-wider uppercase">Store Admin</p>
             </div>
           </div>
         </div>

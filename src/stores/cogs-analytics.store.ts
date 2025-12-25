@@ -128,8 +128,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchProductProfitability: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingProducts: true })
     try {
-      console.log('🔄 Fetching product profitability...', { storeId, startDate, endDate, locationIds })
-
       // Step 1: Adjust date range to include full days
       let adjustedStartDate = startDate
       if (startDate) {
@@ -143,14 +141,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         adjustedEndDate.setHours(23, 59, 59, 999)
       }
 
-      console.log('📅 Product profitability date range:', {
-        start: adjustedStartDate?.toISOString(),
-        end: adjustedEndDate?.toISOString(),
-        locations: locationIds?.length || 'all'
-      })
-
       // Step 2: First fetch valid order IDs to avoid complex join pagination issues
-      console.log('📊 Fetching valid order IDs...')
       const allOrderIds: string[] = []
       const orderPageSize = 1000
       let orderPage = 0
@@ -175,7 +166,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         const { data: orderData, error: orderError } = await orderQuery
 
         if (orderError) {
-          console.error('❌ Order query error:', orderError)
           throw orderError
         }
 
@@ -188,10 +178,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         }
       }
 
-      console.log('✅ Valid orders found:', allOrderIds.length)
-
       // Step 3: Fetch order items in batches by order IDs (avoids complex join pagination)
-      console.log('📊 Fetching order items by order IDs...')
       const allOrderItems: any[] = []
       const batchSize = 500 // Process orders in batches to avoid 'in' clause limits
 
@@ -225,24 +212,15 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         const { data, error } = await query
 
         if (error) {
-          console.error('❌ Query error details:', {
-            message: error?.message,
-            details: error?.details,
-            hint: error?.hint,
-            code: error?.code,
-            fullError: error
-          })
           throw error
         }
 
         if (data && data.length > 0) {
           allOrderItems.push(...data)
-          console.log(`📄 Batch ${Math.floor(i / batchSize) + 1}: fetched ${data.length} items (total so far: ${allOrderItems.length})`)
         }
       }
 
       const orderItems = allOrderItems
-      console.log('✅ All order items loaded:', orderItems.length)
 
       // Step 2.5: Fetch pricing template names for all unique template IDs
       const uniqueTemplateIds = new Set<string>()
@@ -253,21 +231,16 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
       const pricingTemplateMap = new Map<string, string>()
       if (uniqueTemplateIds.size > 0) {
-        console.log('🎨 Fetching pricing templates:', uniqueTemplateIds.size, 'unique IDs')
         const { data: templates } = await supabase
           .from('pricing_tier_templates')
           .select('id, name')
           .in('id', Array.from(uniqueTemplateIds))
 
-        console.log('🎨 Pricing templates loaded:', templates?.length || 0)
         if (templates) {
           for (const template of templates) {
             pricingTemplateMap.set(template.id, template.name)
-            console.log(`   - ${template.name} (${template.id})`)
           }
         }
-      } else {
-        console.log('⚠️ No pricing template IDs found in order items')
       }
 
       // Step 3: Aggregate by product using ACTUAL costs from order_items
@@ -372,24 +345,9 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
       results.sort((a, b) => b.revenue - a.revenue)
 
-      const totalRevenue = results.reduce((sum, p) => sum + p.revenue, 0)
-      const totalCost = results.reduce((sum, p) => sum + p.estimated_cost, 0)
-      console.log('✅ Product Profitability Complete:', {
-        products: results.length,
-        totalRevenue,
-        totalCost,
-        avgMargin: totalRevenue > 0 ? ((totalRevenue - totalCost) / totalRevenue * 100).toFixed(1) + '%' : '0%'
-      })
-
       set({ productProfitability: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch product profitability:', {
-        message: error?.message,
-        details: error?.details,
-        hint: error?.hint,
-        code: error?.code,
-        fullError: error
-      })
+    } catch (error) {
+      console.error('Failed to fetch product profitability:', error)
       set({ productProfitability: [] })
     } finally {
       set({ isLoadingProducts: false })
@@ -400,8 +358,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchDailySalesProfit: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingDaily: true })
     try {
-      console.log('🔄 Fetching daily sales profit...', { storeId, startDate, endDate, locationIds })
-
       // Adjust startDate to beginning of day (00:00:00.000)
       let adjustedStartDate = startDate
       if (startDate) {
@@ -416,14 +372,7 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         adjustedEndDate.setHours(23, 59, 59, 999)
       }
 
-      console.log('📅 Adjusted date range:', {
-        start: adjustedStartDate?.toISOString(),
-        end: adjustedEndDate?.toISOString(),
-        locations: locationIds?.length || 'all'
-      })
-
       // Fetch orders with pagination
-      console.log('📅 Fetching orders with pagination...')
       const allOrders: any[] = []
       const pageSize = 1000
       let page = 0
@@ -444,7 +393,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
         if (data && data.length > 0) {
           allOrders.push(...data)
-          console.log(`📄 Orders page ${page + 1}: ${data.length} items (total: ${allOrders.length} of ${count})`)
           hasMore = data.length === pageSize
           page++
         } else {
@@ -453,7 +401,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       }
 
       const orders = allOrders
-      console.log('✅ All orders loaded:', orders.length)
 
       if (!orders || orders.length === 0) {
         set({ dailySalesProfit: [] })
@@ -465,7 +412,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       const orderIds = orders.map(o => o.id)
 
       // Get order items in batches by order IDs (more efficient than pagination with date filter)
-      console.log('📦 Fetching order items by order IDs...')
       const allItems: any[] = []
       const batchSize = 500 // Process orders in batches to avoid 'in' clause limits
 
@@ -487,16 +433,11 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
 
         if (data && data.length > 0) {
           allItems.push(...data)
-          console.log(`📄 Batch ${Math.floor(i / batchSize) + 1}: ${data.length} items (total: ${allItems.length})`)
         }
       }
 
-      console.log('✅ All items fetched:', allItems.length, 'total')
-
       // All items are already from valid orders, no filter needed
       const items = allItems
-
-      console.log('📦 Order items after date filter:', items.length, 'matched from', orders.length, 'orders')
 
       // Aggregate by date
       const dailyMap = new Map<string, {
@@ -552,23 +493,9 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
         }))
         .sort((a, b) => a.sale_date.localeCompare(b.sale_date))
 
-      const totalRevenue = results.reduce((sum, d) => sum + d.subtotal, 0)
-      const totalCOGS = results.reduce((sum, d) => sum + d.cost_of_goods, 0)
-      const totalOrders = results.reduce((sum, d) => sum + d.order_count, 0)
-
-      console.log('✅ Daily Sales Complete:', {
-        days: results.length,
-        dateRange: results.length > 0 ? `${results[0].sale_date} to ${results[results.length-1].sale_date}` : 'no data',
-        totalRevenue: totalRevenue.toFixed(2),
-        totalCOGS: totalCOGS.toFixed(2),
-        totalOrders,
-        avgMargin: totalRevenue > 0 ? ((totalRevenue - totalCOGS) / totalRevenue * 100).toFixed(1) + '%' : '0%',
-        sampleDays: results.slice(0, 3).map(d => ({ date: d.sale_date, cogs: d.cost_of_goods, revenue: d.subtotal }))
-      })
-
       set({ dailySalesProfit: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch daily sales:', error)
+    } catch (error) {
+      console.error('Failed to fetch daily sales:', error)
       set({ dailySalesProfit: [] })
     } finally {
       set({ isLoadingDaily: false })
@@ -579,7 +506,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchSupplierCostComparison: async (storeId: string, locationIds?: string[]) => {
     set({ isLoadingSuppliers: true })
     try {
-      console.log('🔄 Fetching supplier cost comparison...', { storeId, locationIds })
       const { data, error } = await supabase
         .from('purchase_order_items')
         .select(`
@@ -648,8 +574,8 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       }))
 
       set({ supplierCostComparison: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch supplier comparison:', error)
+    } catch (error) {
+      console.error('Failed to fetch supplier comparison:', error)
       set({ supplierCostComparison: [] })
     } finally {
       set({ isLoadingSuppliers: false })
@@ -660,7 +586,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchInventoryValuation: async (storeId: string, locationIds?: string[]) => {
     set({ isLoadingInventory: true })
     try {
-      console.log('🔄 Fetching inventory valuation...', { storeId, locationIds })
       let query = supabase
         .from('inventory')
         .select(`
@@ -709,8 +634,8 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       })
 
       set({ inventoryValuation: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch inventory valuation:', error)
+    } catch (error) {
+      console.error('Failed to fetch inventory valuation:', error)
       set({ inventoryValuation: [] })
     } finally {
       set({ isLoadingInventory: false })
@@ -721,7 +646,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchCostTrends: async (storeId: string, productId?: string, locationIds?: string[]) => {
     set({ isLoadingTrends: true })
     try {
-      console.log('🔄 Fetching cost trends...', { storeId, productId, locationIds })
       let query = supabase
         .from('product_cost_history')
         .select(`
@@ -766,8 +690,8 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       })
 
       set({ costTrends: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch cost trends:', error)
+    } catch (error) {
+      console.error('Failed to fetch cost trends:', error)
       set({ costTrends: [] })
     } finally {
       set({ isLoadingTrends: false })
@@ -778,7 +702,6 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
   fetchPurchaseOrders: async (storeId: string, startDate?: Date, endDate?: Date, locationIds?: string[]) => {
     set({ isLoadingPOs: true })
     try {
-      console.log('🔄 Fetching purchase orders...', { storeId, startDate, endDate, locationIds })
       let query = supabase
         .from('purchase_orders')
         .select(`
@@ -828,8 +751,8 @@ export const useCogsAnalyticsStore = create<CogsAnalyticsState>((set) => ({
       })
 
       set({ purchaseOrders: results })
-    } catch (error: any) {
-      console.error('❌ Failed to fetch purchase orders:', error)
+    } catch (error) {
+      console.error('Failed to fetch purchase orders:', error)
       set({ purchaseOrders: [] })
     } finally {
       set({ isLoadingPOs: false })

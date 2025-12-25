@@ -1,36 +1,89 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# WhaleTools Analytics Dashboard
+
+A comprehensive analytics and reporting dashboard for retail store management.
+
+## Features
+
+- **Sales Analytics** - Track revenue, orders, and sales trends
+- **Product Management** - Categories, pricing templates, and inventory
+- **Customer Insights** - Customer segments and purchase behavior
+- **Staff Performance** - Order fulfillment tracking and metrics
+- **Operations Dashboard** - Order management and shipment tracking
+- **Marketing Campaigns** - Email campaigns and customer segments
+- **QR Code Tracking** - Generate and track QR codes for products and campaigns
+- **Reports Builder** - Custom report generation with PDF export
+
+## Tech Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Database**: Supabase (PostgreSQL)
+- **State Management**: Zustand
+- **Styling**: Tailwind CSS
+- **Charts**: Recharts, Nivo
+- **PDF Export**: jsPDF, html2canvas
+- **Shipping**: EasyPost integration
+- **Email**: Resend integration
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- Supabase account
+- Environment variables configured
+
+### Installation
+
+```bash
+npm install
+```
+
+### Environment Variables
+
+Create a `.env.local` file with:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+EASYPOST_API_KEY=your_easypost_key
+RESEND_API_KEY=your_resend_key
+```
+
+### Development
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run build
+```
 
-## Learn More
+## Project Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/
+├── app/                    # Next.js App Router pages
+│   ├── api/               # API routes
+│   └── dashboard/         # Dashboard pages
+├── components/            # React components
+│   ├── charts/           # Chart components
+│   ├── filters/          # Filter components
+│   ├── layout/           # Layout components
+│   ├── marketing/        # Marketing components
+│   ├── modals/           # Modal components
+│   ├── products/         # Product components
+│   └── reports/          # Report components
+├── lib/                   # Utility libraries
+├── stores/               # Zustand state stores
+└── types/                # TypeScript types
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Documentation
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [Staff Performance Tracking](./STAFF_PERFORMANCE_TRACKING.md) - Order fulfillment metrics system

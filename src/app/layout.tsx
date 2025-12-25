@@ -8,7 +8,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "WhaleTools Analytics Dashboard",
-  description: "Vendor analytics and financial reporting dashboard",
+  description: "Store analytics and financial reporting dashboard",
 };
 
 export default function RootLayout({

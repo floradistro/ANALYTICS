@@ -8,9 +8,7 @@ import {
   ChevronDown,
   Edit2,
   Trash2,
-  Eye,
   Star,
-  MoreVertical,
 } from 'lucide-react'
 import { useProductsStore, type Product } from '@/stores/products.store'
 import { useAuthStore } from '@/stores/auth.store'
@@ -81,12 +79,10 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
     async function openProduct() {
       // Normalize UUID to lowercase for comparison
       const normalizedId = initialProductId!.toLowerCase()
-      console.log('[ProductsTab] Looking for product:', normalizedId, 'in', products.length, 'loaded products')
 
       // First check if it's in the loaded products (case-insensitive comparison)
       const product = products.find(p => p.id.toLowerCase() === normalizedId)
       if (product) {
-        console.log('[ProductsTab] Found product in loaded list, opening modal')
         setModalState({ isOpen: true, mode: 'edit', product })
         onProductViewed?.()
         return
@@ -94,12 +90,10 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
 
       // If not found and products haven't loaded yet, wait
       if (products.length === 0) {
-        console.log('[ProductsTab] Products not loaded yet, waiting...')
         return
       }
 
       // Product not in current list, fetch it directly
-      console.log('[ProductsTab] Product not in list, fetching directly...')
       const { data, error } = await supabase
         .from('products')
         .select(`
@@ -110,8 +104,6 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
         .eq('id', normalizedId)
         .single()
 
-      console.log('[ProductsTab] Fetch result:', { data: !!data, error })
-
       if (data && !error) {
         const fetchedProduct: Product = {
           ...data,
@@ -120,7 +112,7 @@ export function ProductsTab({ initialProductId, onProductViewed }: ProductsTabPr
         }
         setModalState({ isOpen: true, mode: 'edit', product: fetchedProduct })
       } else if (error) {
-        console.error('[ProductsTab] Failed to fetch product:', error)
+        console.error('Failed to fetch product:', error)
       }
       onProductViewed?.()
     }

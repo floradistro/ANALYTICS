@@ -318,15 +318,6 @@ export default function MapboxMap({ layers, visibleLayers, isLoading, journeys =
   const [error, setError] = useState<string | null>(null)
   const layersInitialized = useRef(false)
 
-  // Debug log journeys
-  useEffect(() => {
-    const withPoints = journeys.filter(j => j.points.length >= 2)
-    console.log('[MapboxMap] Received', journeys.length, 'journeys,', withPoints.length, 'with 2+ points')
-    if (withPoints.length > 0) {
-      console.log('[MapboxMap] Sample journey:', withPoints[0].trackingNumber, withPoints[0].points.map(p => `${p.city},${p.state}`))
-    }
-  }, [journeys])
-
   // Memoize GeoJSON data to prevent unnecessary recalculations
   const geoJsonData = useMemo(() => {
     const customerMax = Math.max(...layers.customers.map(p => p.revenue || 1), 1)

@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!storeId) {
-      return NextResponse.json({ error: 'Missing vendor ID' }, { status: 400 })
+      return NextResponse.json({ error: 'Missing store ID' }, { status: 400 })
     }
 
     const client = new EasyPost(apiKey)

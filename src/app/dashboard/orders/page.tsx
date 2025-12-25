@@ -73,9 +73,7 @@ export default function OrdersPage() {
   // Handle deep linking from QR dashboard via sessionStorage
   useEffect(() => {
     const storedOrderId = sessionStorage.getItem('openOrderId')
-    console.log('[Orders Deep Link] storedOrderId:', storedOrderId, 'editModalOpen:', editModalOpen)
     if (storedOrderId && !editModalOpen) {
-      console.log('[Orders Deep Link] Opening modal for order:', storedOrderId)
       setEditOrderId(storedOrderId)
       setEditModalOpen(true)
       // Clear immediately to prevent re-opening
@@ -303,8 +301,6 @@ export default function OrdersPage() {
   useEffect(() => {
     if (!storeId) return
 
-    console.log('[Orders Realtime] Setting up subscription...')
-
     const channel = supabase
       .channel('orders-changes')
       .on(
@@ -316,8 +312,6 @@ export default function OrdersPage() {
           filter: `store_id=eq.${storeId}`
         },
         async (payload) => {
-          console.log('[Orders Realtime] Change detected:', payload.eventType, payload)
-
           if (payload.eventType === 'INSERT') {
             // New order created - fetch customer data and prepend
             const newOrder = payload.new as Order
@@ -375,13 +369,10 @@ export default function OrdersPage() {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('[Orders Realtime] Subscription status:', status)
-      })
+      .subscribe()
 
     // Cleanup on unmount
     return () => {
-      console.log('[Orders Realtime] Cleaning up subscription')
       supabase.removeChannel(channel)
     }
   }, [storeId])

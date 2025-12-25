@@ -33,8 +33,8 @@ const QUALITY_TIERS = [
   { value: 'value', label: 'Value', color: 'zinc' },
 ] as const
 
-// Field types for vendor_product_fields
-interface VendorProductField {
+// Field types for product custom fields (stored in vendor_product_fields table)
+interface ProductField {
   id: string
   store_id: string
   field_id: string
@@ -116,7 +116,7 @@ export function CategoryDetailModal({
   const [isUploading, setIsUploading] = useState(false)
 
   // Category custom fields
-  const [categoryFields, setCategoryFields] = useState<VendorProductField[]>([])
+  const [categoryFields, setCategoryFields] = useState<ProductField[]>([])
   const [isLoadingFields, setIsLoadingFields] = useState(false)
   const [newField, setNewField] = useState<{
     label: string
@@ -274,7 +274,7 @@ export function CategoryDetailModal({
     }
   }
 
-  const handleToggleFieldActive = async (field: VendorProductField) => {
+  const handleToggleFieldActive = async (field: ProductField) => {
     try {
       const { error } = await supabase
         .from('vendor_product_fields')

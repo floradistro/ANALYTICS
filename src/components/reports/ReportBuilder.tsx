@@ -868,7 +868,7 @@ export default function ReportBuilder() {
       await generatePDFReport({
         title: `Sales Report${dimensionLabels ? ` by ${dimensionLabels}` : ''}`,
         subtitle: `${config.dateGranularity.charAt(0).toUpperCase() + config.dateGranularity.slice(1)} breakdown`,
-        vendor: {
+        store: {
           storeName: store.store_name || 'Store',
           logoUrl: store.logo_url,
         },

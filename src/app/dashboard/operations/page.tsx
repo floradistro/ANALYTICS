@@ -3,18 +3,16 @@
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth.store'
 import { supabase } from '@/lib/supabase'
-import { format, isToday, startOfDay, subDays } from 'date-fns'
+import { format, isToday, subDays } from 'date-fns'
 import {
   ClipboardCheck,
   DollarSign,
   AlertTriangle,
-  TrendingUp,
   TrendingDown,
   Building2,
   Clock,
   Download,
   Calendar,
-  FileText,
   CheckCircle2,
   XCircle,
   X,
@@ -231,23 +229,6 @@ export default function OperationsPage() {
           .eq('store_id', storeId),
       ])
 
-      console.log('Operations data fetched:', {
-        audits: auditsRes.data?.length || 0,
-        adjustments: adjustmentsRes.data?.length || 0,
-        safes: safesRes.data?.length || 0,
-        transactions: transactionsRes.data?.length || 0,
-        locations: locationsRes.data?.length || 0,
-        errors: {
-          audits: auditsRes.error,
-          adjustments: adjustmentsRes.error,
-          safes: safesRes.error,
-          transactions: transactionsRes.error,
-          locations: locationsRes.error
-        },
-        sampleAudit: auditsRes.data?.[0],
-        auditDates: auditsRes.data?.map(a => a.audit_date)
-      })
-
       const auditsData = auditsRes.data || []
 
       // Calculate completion rates for each audit
@@ -325,7 +306,7 @@ export default function OperationsPage() {
           .lte('created_at', endOfDay)
           .order('created_at', { ascending: false }),
 
-        // Pre-fetch all vendor users to avoid sequential lookups
+        // Pre-fetch all store users to avoid sequential lookups
         supabase
           .from('users')
           .select('id, auth_user_id, first_name, last_name, email')
@@ -380,7 +361,6 @@ export default function OperationsPage() {
   // Metrics calculations
   const today = format(new Date(), 'yyyy-MM-dd')
   const todayAudits = audits.filter(a => a.audit_date === today)
-  console.log('Today audits filtered:', { total: audits.length, today: todayAudits.length, totalLocations, todayDate: today })
 
   // Calculate average product completion rate (not location completion)
   const todayAuditsWithCompletion = todayAudits.filter(a => a.completion_rate !== undefined)

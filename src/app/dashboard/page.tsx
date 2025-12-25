@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { DollarSign, ShoppingCart, TrendingUp, TrendingDown, MapPin, Package, Users, ArrowUpRight, ArrowDownRight, Globe, Monitor, Smartphone, ExternalLink } from 'lucide-react'
+import { DollarSign, ShoppingCart, TrendingUp, MapPin, Package, Users, ArrowUpRight, ArrowDownRight, Globe, Smartphone, ExternalLink } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { useDashboardStore } from '@/stores/dashboard.store'
 import { useOrdersStore } from '@/stores/orders.store'
 import { FilterBar } from '@/components/filters/FilterBar'
 import { supabase } from '@/lib/supabase'
-import { format, subDays, startOfDay, endOfDay } from 'date-fns'
+import { format } from 'date-fns'
 import { getDateRangeForQuery, generateDateRange } from '@/lib/date-utils'
 import {
   AreaChart,

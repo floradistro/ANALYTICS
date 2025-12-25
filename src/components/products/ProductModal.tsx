@@ -66,7 +66,8 @@ interface PricingTier {
   sort_order: number
 }
 
-interface VendorProductField {
+// Product custom fields (stored in vendor_product_fields table)
+interface ProductField {
   id: string
   field_id: string
   field_definition: {
@@ -110,7 +111,7 @@ export function ProductModal({
   // Full product data from database
   const [fullProduct, setFullProduct] = useState<any>(null)
   const [pricingTiers, setPricingTiers] = useState<PricingTier[]>([])
-  const [categoryFields, setCategoryFields] = useState<VendorProductField[]>([])
+  const [categoryFields, setCategoryFields] = useState<ProductField[]>([])
   const [categoryVariants, setCategoryVariants] = useState<CategoryVariantTemplate[]>([])
   const [productVariantConfigs, setProductVariantConfigs] = useState<ProductVariantConfig[]>([])
 
@@ -244,9 +245,8 @@ export function ProductModal({
           if (!variantConfigsError) {
             setProductVariantConfigs(variantConfigsData || [])
           }
-        } catch (err) {
+        } catch {
           // Table may not exist, silently ignore
-          console.log('product_variant_configs not available')
         }
       } else {
         setCategoryVariants([])

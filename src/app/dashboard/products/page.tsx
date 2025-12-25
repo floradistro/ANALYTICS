@@ -17,9 +17,7 @@ export default function ProductsPage() {
   // Handle deep linking from QR dashboard via sessionStorage
   useEffect(() => {
     const storedProductId = sessionStorage.getItem('openProductId')
-    console.log('[Products Deep Link] storedProductId:', storedProductId, 'current initialProductId:', initialProductId)
     if (storedProductId && !initialProductId) {
-      console.log('[Products Deep Link] Setting initialProductId:', storedProductId)
       setInitialProductId(storedProductId)
       // Clear immediately to prevent re-opening
       sessionStorage.removeItem('openProductId')

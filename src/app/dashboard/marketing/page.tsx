@@ -3,13 +3,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Mail, Target, Users, TrendingUp, Send, Eye, MousePointer,
-  AlertCircle, Clock, CheckCircle, Pause, Play, MoreHorizontal,
-  ChevronRight, Plus, Search, Filter, ArrowUpRight, ArrowDownRight,
-  Info, Globe, ShoppingCart, UserCheck, Repeat, BarChart3, RefreshCw
+  AlertCircle, CheckCircle,
+  ChevronRight, Plus, ArrowDownRight,
+  Info, Globe, ShoppingCart, Repeat, BarChart3, RefreshCw
 } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth.store'
 import { supabase } from '@/lib/supabase'
-import { format, formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow } from 'date-fns'
 import { CampaignModal } from '@/components/marketing/CampaignModal'
 import { SegmentModal } from '@/components/marketing/SegmentModal'
 import { MetaCampaignModal } from '@/components/marketing/MetaCampaignModal'

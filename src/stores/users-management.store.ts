@@ -72,7 +72,7 @@ export const useUsersManagementStore = create<UsersManagementState>((set, get) =
     set({ isLoading: true, error: null })
 
     try {
-      // Get all users for this vendor
+      // Get all users for this store
       const { data: usersData, error: usersError } = await supabase
         .from('users')
         .select('*')

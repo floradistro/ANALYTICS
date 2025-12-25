@@ -102,7 +102,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'shipping', label: 'Shipping', icon: Truck, description: 'Shipping rates & rules' },
   { id: 'email', label: 'Email', icon: Mail, description: 'Notifications & templates' },
   { id: 'team', label: 'Team', icon: Users, description: 'Users & permissions' },
-  { id: 'suppliers', label: 'Suppliers', icon: Package, description: 'Vendor management' },
+  { id: 'suppliers', label: 'Suppliers', icon: Package, description: 'Supplier management' },
   { id: 'data', label: 'Data Tools', icon: Database, description: 'Data backfill & maintenance' },
 ]
 
@@ -137,33 +137,15 @@ export default function SettingsPage() {
       ])
 
       if (storeResult.error) {
-        console.error('[Settings] Vendor error:', storeResult.error)
+        console.error('Settings store error:', storeResult.error)
       } else {
-        console.log('[Settings] Loaded store:', storeResult.data)
-        console.log('[Settings] Shipping config:', {
-          default_shipping_cost: storeResult.data?.default_shipping_cost,
-          free_shipping_enabled: storeResult.data?.free_shipping_enabled,
-          free_shipping_threshold: storeResult.data?.free_shipping_threshold
-        })
         setLocalStore(storeResult.data)
         setStore(storeResult.data)
       }
 
       if (locationsResult.error) {
-        console.error('[Settings] Locations error:', locationsResult.error)
+        console.error('Settings locations error:', locationsResult.error)
       } else {
-        console.log('[Settings] Loaded locations:', locationsResult.data)
-        // Log tax rates specifically for debugging - check both direct columns and settings JSONB
-        locationsResult.data?.forEach((loc: any) => {
-          const taxFromSettings = loc.settings?.tax_config
-          console.log(`[Settings] Location "${loc.name}":`, {
-            direct_tax_rate: loc.tax_rate,
-            direct_tax_name: loc.tax_name,
-            settings_tax_config: taxFromSettings,
-            effective_rate: taxFromSettings?.sales_tax_rate ?? loc.tax_rate,
-            effective_name: taxFromSettings?.tax_name ?? loc.tax_name
-          })
-        })
         setLocations(locationsResult.data || [])
       }
     } catch (error) {
@@ -186,7 +168,6 @@ export default function SettingsPage() {
         .order('is_primary', { ascending: false })
 
       if (error) throw error
-      console.log('[Settings] Refreshed locations:', data)
       setLocations(data || [])
     } catch (error) {
       console.error('[Settings] Failed to fetch locations:', error)
@@ -195,9 +176,9 @@ export default function SettingsPage() {
     }
   }
 
-  const handleStoreUpdate = (updatedVendor: any) => {
-    setLocalStore(updatedVendor)
-    setStore(updatedVendor)
+  const handleStoreUpdate = (updatedStore: any) => {
+    setLocalStore(updatedStore)
+    setStore(updatedStore)
   }
 
   // Show loading while waiting for storeId from auth store
@@ -306,7 +287,6 @@ function StoreSettings({
 
   useEffect(() => {
     if (store) {
-      console.log('[StoreSettings] Store loaded:', store)
       setFormData({
         store_name: store.store_name || '',
         ecommerce_url: store.ecommerce_url || '',
@@ -1277,7 +1257,7 @@ function PaymentsSettings({ storeId }: { storeId: string | null }) {
             signature_key: data.authorizenet_signature_key || '',
           })
         }
-      } catch { console.log('[PaymentsSettings] No existing Authorize.net config') }
+      } catch { /* No existing Authorize.net config */ }
       finally { setLoading(false) }
     }
     loadAuthNetConfig()
@@ -1838,7 +1818,7 @@ function EmailSettings({ storeId }: { storeId: string | null }) {
                           placeholder="https://hooks.slack.com/services/..."
                         />
                       </FormField>
-                      <FormField label="Alert Email Override" hint="Send alerts to a different email (leave blank to use vendor email)">
+                      <FormField label="Alert Email Override" hint="Send alerts to a different email (leave blank to use store email)">
                         <input
                           type="email"
                           value={formData.failed_checkout_alert_email}
@@ -1856,7 +1836,7 @@ function EmailSettings({ storeId }: { storeId: string | null }) {
                       />
                       <InfoRow
                         label="Alert Email"
-                        value={formData.failed_checkout_alert_email || 'Using default vendor email'}
+                        value={formData.failed_checkout_alert_email || 'Using default store email'}
                       />
                     </div>
                   )}

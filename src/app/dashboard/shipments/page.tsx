@@ -144,31 +144,16 @@ export default function ShipmentsPage() {
 
   // Fetch tracking data from database
   const fetchTrackingData = useCallback(async () => {
-    if (!storeId) {
-      console.log('No storeId yet')
-      return
-    }
-
-    console.log('Fetching tracking data for store:', storeId)
+    if (!storeId) return
 
     try {
-      // First check all data in table (for debugging)
-      const { data: allData } = await supabase
-        .from('shipment_tracking')
-        .select('tracking_number, store_id, status')
-        .limit(5)
-      console.log('All tracking data in DB:', allData)
-
       const { data, error } = await supabase
         .from('shipment_tracking')
         .select('*')
         .eq('store_id', storeId)
 
-      console.log('Tracking data for this store:', data, 'Error:', error)
-
       if (error) {
         // Table might not exist yet
-        console.log('Tracking table not ready:', error.message)
         return
       }
 
@@ -234,12 +219,7 @@ export default function ShipmentsPage() {
 
       // Show results summary
       const registered = data.results?.filter((r: any) => r.status === 'registered').length || 0
-      const alreadyRegistered = data.results?.filter((r: any) => r.status === 'already_registered').length || 0
-      const invalid = data.results?.filter((r: any) => r.status === 'invalid').length || 0
 
-      if (registered > 0) {
-        console.log(`Registered ${registered} trackers`)
-      }
       if (data.rateLimited) {
         setError(`Rate limited after ${registered} registrations. Try again in a minute.`)
       }
@@ -275,7 +255,6 @@ export default function ShipmentsPage() {
       })
 
       const data = await response.json()
-      console.log('Register response:', data)
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to register tracker')

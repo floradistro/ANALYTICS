@@ -7,8 +7,8 @@ import { supabase } from '@/lib/supabase'
 import { getDateRangeForQuery } from '@/lib/date-utils'
 import { getStateCentroid, getCityCoordinates, normalizeState, batchGeocodeAddresses } from '@/lib/geocoding'
 import {
-  Loader2, Radio, Crosshair, Activity, Target, Zap, TrendingUp,
-  MapPin, Users, Package, Globe, Eye, EyeOff, Maximize2, X, Truck
+  Radio, Crosshair, Activity, Target, Zap, TrendingUp,
+  MapPin, Users, Package, Globe, Eye, EyeOff, Truck
 } from 'lucide-react'
 import dynamic from 'next/dynamic'
 
@@ -160,22 +160,15 @@ export default function MapDashboardPage() {
 
   // Fetch shipment journeys from EasyPost tracking data
   const fetchJourneys = useCallback(async () => {
-    if (!storeId) {
-      console.log('[Map] No storeId, skipping journeys fetch')
-      return
-    }
+    if (!storeId) return
     try {
-      console.log('[Map] Fetching journeys for store:', storeId)
       const response = await fetch(`/api/shipments/journeys?storeId=${storeId}&limit=50`)
       const data = await response.json()
-      console.log('[Map] Journeys response:', data.journeys?.length || 0, 'journeys,', data.totalFacilities || 0, 'facilities')
       if (data.journeys) {
-        const withPoints = data.journeys.filter((j: any) => j.points.length >= 2)
-        console.log('[Map] Journeys with 2+ points:', withPoints.length)
         setJourneys(data.journeys)
       }
     } catch (err) {
-      console.error('[Map] Error fetching journeys:', err)
+      console.error('Error fetching journeys:', err)
     }
   }, [storeId])
 
@@ -494,15 +487,6 @@ export default function MapDashboardPage() {
       const pageViewCounts = new Map<string, number>()
       const eventCounts = new Map<string, { total: number; products: number; carts: number; purchases: number; revenue: number }>()
 
-      // Log geolocation source distribution for debugging
-      const geoSourceCounts = new Map<string, number>()
-      for (const v of visitors || []) {
-        const source = v.geolocation_source || 'null/empty'
-        geoSourceCounts.set(source, (geoSourceCounts.get(source) || 0) + 1)
-      }
-      console.log('[Map] DB geolocation_source distribution:', Object.fromEntries(geoSourceCounts))
-      console.log('[Map] Total visitors with lat/lng:', visitors?.length || 0)
-
       if (sessionIds.length > 0) {
         // Get page view counts
         const { data: pvData } = await supabase
@@ -556,7 +540,7 @@ export default function MapDashboardPage() {
           }
 
           // Determine geo source
-          let geoSource = visitor.geolocation_source || ''
+          const geoSource = visitor.geolocation_source || ''
           const isAccurate = geoSource === 'browser_gps' || geoSource === 'ipinfo'
 
           // For accurate sources, plot individual points
@@ -627,18 +611,6 @@ export default function MapDashboardPage() {
           })
         }
       }
-
-      console.log('[Map] City aggregates:', cityAggregates.size, 'cities with inaccurate data')
-
-      // Log final geoSource distribution in traffic points
-      const finalGeoSourceCounts = new Map<string, number>()
-      const accurateCount = trafficPoints.filter(p => p.geoSource === 'browser_gps' || p.geoSource === 'ipinfo').length
-      for (const p of trafficPoints) {
-        const source = p.geoSource || 'no_source'
-        finalGeoSourceCounts.set(source, (finalGeoSourceCounts.get(source) || 0) + 1)
-      }
-      console.log('[Map] Final traffic geoSource distribution:', Object.fromEntries(finalGeoSourceCounts))
-      console.log('[Map] Accurate (browser_gps + ipinfo):', accurateCount, '/', trafficPoints.length)
 
       // Calculate stats
       const totalStoreOrders = Array.from(storeOrderAgg.values()).reduce((sum, d) => sum + d.orders, 0)

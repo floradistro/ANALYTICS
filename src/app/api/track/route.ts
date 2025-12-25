@@ -266,7 +266,6 @@ export async function POST(request: NextRequest) {
       longitude = parseFloat(String(browserLng))
       geoSource = 'browser_gps'
       geoAccuracy = browserGeoAccuracy || null
-      console.log('[Track API] Using browser GPS:', { latitude, longitude, accuracy: geoAccuracy })
     }
     // Priority 2: Use ipinfo.io for accurate IP-based geolocation
     else {
@@ -275,25 +274,14 @@ export async function POST(request: NextRequest) {
                  request.headers.get('x-real-ip') ||
                  null
 
-      // Enhanced debug logging to diagnose ipinfo coverage issues
-      console.log('[Track API] IP Detection:', {
-        xForwardedFor: request.headers.get('x-forwarded-for'),
-        xRealIp: request.headers.get('x-real-ip'),
-        extractedIp: ip,
-        hasToken: !!ipinfoToken,
-        tokenLength: ipinfoToken?.length || 0
-      })
-
       if (ipinfoToken && ip && ip !== '127.0.0.1' && !ip.startsWith('192.168.')) {
         try {
-          console.log('[Track API] ✓ Fetching ipinfo for IP:', ip)
           const ipinfoResponse = await fetch(`https://ipinfo.io/${ip}?token=${ipinfoToken}`, {
             headers: { 'Accept': 'application/json' }
           })
 
           if (ipinfoResponse.ok) {
             const ipinfoData = await ipinfoResponse.json()
-            console.log('[Track API] ipinfo.io response:', ipinfoData)
 
             // Parse lat,lng from ipinfo "loc" field (format: "37.4056,-122.0775")
             if (ipinfoData.loc) {
@@ -307,15 +295,7 @@ export async function POST(request: NextRequest) {
                 // Convert to meters for consistency with GPS accuracy
                 if (ipinfoData.accuracy_radius) {
                   geoAccuracy = ipinfoData.accuracy_radius * 1000 // km to meters
-                  console.log('[Track API] ipinfo accuracy radius:', geoAccuracy, 'meters')
                 }
-
-                console.log('[Track API] Using ipinfo.io coordinates:', {
-                  latitude,
-                  longitude,
-                  postal: ipinfoData.postal,
-                  accuracy_km: ipinfoData.accuracy_radius
-                })
               }
             }
 
@@ -324,25 +304,11 @@ export async function POST(request: NextRequest) {
             region = ipinfoData.region || region
             country = ipinfoData.country || country
             postalCode = ipinfoData.postal || null
-
-            // Log postal code for debugging
-            if (postalCode) {
-              console.log('[Track API] ZIP code:', postalCode)
-            }
           }
         } catch (err) {
-          console.error('[Track API] ✗ ipinfo.io error:', err)
+          console.error('ipinfo.io error:', err)
           // Fall through to Vercel headers
         }
-      } else {
-        // Log why ipinfo was skipped
-        console.log('[Track API] ✗ Skipped ipinfo:', {
-          reason: !ipinfoToken ? 'NO_TOKEN' :
-                  !ip ? 'NO_IP' :
-                  ip === '127.0.0.1' ? 'LOCALHOST' :
-                  ip.startsWith('192.168.') ? 'PRIVATE_IP' : 'UNKNOWN',
-          ip: ip || 'null'
-        })
       }
 
       // Priority 3: Fallback to Vercel headers (datacenter IPs, less accurate)
@@ -353,7 +319,6 @@ export async function POST(request: NextRequest) {
           latitude = parseFloat(vercelLat)
           longitude = parseFloat(vercelLng)
           geoSource = 'vercel_headers'
-          console.log('[Track API] Using Vercel headers (datacenter):', { latitude, longitude })
         }
       }
     }
@@ -366,15 +331,6 @@ export async function POST(request: NextRequest) {
     // Use comprehensive bot detection with scoring
     const hasFingerprint = !!fingerprint_id
     const botDetection = detectBot(userAgent, hasFingerprint, source)
-
-    // Log bot detection for monitoring
-    if (botDetection.isBot) {
-      console.log('[Track API] Bot detected:', {
-        score: botDetection.score,
-        reasons: botDetection.reasons,
-        ua: userAgent.substring(0, 100)
-      })
-    }
 
     // Detect channel from referrer and UTM
     const channel = detectChannel(referrer, utm_source, utm_medium)

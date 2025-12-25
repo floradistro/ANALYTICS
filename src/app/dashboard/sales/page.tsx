@@ -52,7 +52,7 @@ export default function SalesAnalyticsPage() {
     })
   }, [filters.orderTypes, filters.locationIds])
 
-  // Fetch orders when vendor/date changes
+  // Fetch orders when store/date changes
   useEffect(() => {
     if (storeId) {
       fetchOrders(storeId)

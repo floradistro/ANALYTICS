@@ -416,7 +416,6 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
           const resendResponse = await fetch(`/api/emails?${params.toString()}`)
           if (resendResponse.ok) {
             const resendData = await resendResponse.json()
-            console.log('Emails API response:', resendData)
             if (resendData.emails && resendData.emails.length > 0) {
               // Transform Resend API response to match our format
               const transformedEmails = resendData.emails.map((email: any) => ({
@@ -639,11 +638,9 @@ export function EditOrderModal({ orderId, isOpen, onClose, onSave }: EditOrderMo
     try {
       // If we have a resend_email_id, fetch the full content
       const emailId = email.resend_email_id || email.id
-      console.log('Fetching email content for:', emailId, email)
       if (emailId) {
         const response = await fetch(`/api/emails/${emailId}`)
         const data = await response.json()
-        console.log('Email API response:', data)
         if (data.email) {
           setEmailContent(data.email.html || data.email.text || null)
         } else if (data.error) {
